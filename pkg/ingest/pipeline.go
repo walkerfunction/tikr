@@ -1,0 +1,152 @@
+package ingest
+
+import (
+	"fmt"
+	"log"
+	"sync"
+
+	"github.com/tikr-dev/tikr/pkg/agg"
+	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/tikr-dev/tikr/pkg/storage"
+)
+
+// SeriesPipeline holds the processing components for a single series.
+type SeriesPipeline struct {
+	Spec     *core.SeriesSpec
+	SeriesID uint16
+	Rollup   *agg.RollupEngine
+	Batcher  *Batcher
+}
+
+// Pipeline orchestrates ingestion across all configured series.
+type Pipeline struct {
+	mu       sync.RWMutex
+	series   map[string]*SeriesPipeline // series name → pipeline
+	writer   *storage.Writer
+	barSink  func(*core.Bar) // called for each flushed bar (e.g., write to storage + push to Kafka)
+	wg       sync.WaitGroup  // tracks consumeBars goroutines
+}
+
+// PipelineConfig holds the configuration for creating a pipeline.
+type PipelineConfig struct {
+	Specs       []*core.SeriesSpec
+	Writer      *storage.Writer
+	Hook        agg.BarHook
+	BatcherCfg  BatcherConfig
+	OnBarFlushed func(*core.Bar) // optional callback for each flushed bar
+}
+
+// NewPipeline creates a pipeline for all configured series.
+func NewPipeline(cfg PipelineConfig) (*Pipeline, error) {
+	p := &Pipeline{
+		series:  make(map[string]*SeriesPipeline),
+		writer:  cfg.Writer,
+		barSink: cfg.OnBarFlushed,
+	}
+
+	for i, spec := range cfg.Specs {
+		seriesID := uint16(i + 1)
+
+		rollup, err := agg.NewRollupEngine(spec, seriesID, cfg.Hook)
+		if err != nil {
+			return nil, fmt.Errorf("creating rollup engine for %s: %w", spec.Series, err)
+		}
+
+		sp := &SeriesPipeline{
+			Spec:     spec,
+			SeriesID: seriesID,
+			Rollup:   rollup,
+		}
+
+		// Batcher flushes to storage writer + feeds aggregation engine
+		batcher := NewBatcher(cfg.BatcherCfg, func(ticks []core.Tick) {
+			p.handleBatch(sp, ticks)
+		})
+		sp.Batcher = batcher
+
+		p.series[spec.Series] = sp
+
+		// Start bar consumer goroutine (reads flushed bars from rollup engine)
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			p.consumeBars(sp)
+		}()
+	}
+
+	return p, nil
+}
+
+// Ingest routes a tick to the appropriate series pipeline.
+func (p *Pipeline) Ingest(tick core.Tick) error {
+	p.mu.RLock()
+	sp, ok := p.series[tick.Series]
+	p.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("unknown series: %s", tick.Series)
+	}
+
+	sp.Batcher.Add(tick)
+	return nil
+}
+
+// handleBatch writes a batch of ticks to storage and feeds them to the rollup engine.
+func (p *Pipeline) handleBatch(sp *SeriesPipeline, ticks []core.Tick) {
+	// Write to Pebble
+	if err := p.writer.WriteTicks(sp.SeriesID, ticks); err != nil {
+		log.Printf("error writing tick batch for %s: %v", sp.Spec.Series, err)
+	}
+
+	// Feed each tick to the rollup engine
+	for i := range ticks {
+		sp.Rollup.ProcessTick(&ticks[i])
+	}
+}
+
+// consumeBars reads flushed bars from the rollup engine and processes them.
+func (p *Pipeline) consumeBars(sp *SeriesPipeline) {
+	for bar := range sp.Rollup.BarChan() {
+		// Write bar to local storage
+		if err := p.writer.WriteBar(sp.SeriesID, bar); err != nil {
+			log.Printf("error writing bar for %s: %v", sp.Spec.Series, err)
+		}
+
+		// Call external sink (e.g., Kafka push)
+		if p.barSink != nil {
+			p.barSink(bar)
+		}
+	}
+}
+
+// GetSeriesPipeline returns the pipeline for a given series name.
+func (p *Pipeline) GetSeriesPipeline(name string) (*SeriesPipeline, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	sp, ok := p.series[name]
+	return sp, ok
+}
+
+// SeriesIDs returns a map of series name → series ID.
+func (p *Pipeline) SeriesIDs() map[string]uint16 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	ids := make(map[string]uint16, len(p.series))
+	for name, sp := range p.series {
+		ids[name] = sp.SeriesID
+	}
+	return ids
+}
+
+// Close gracefully shuts down all series pipelines.
+func (p *Pipeline) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, sp := range p.series {
+		sp.Batcher.Close()
+		sp.Rollup.Close() // closes BarChan, which unblocks consumeBars
+	}
+
+	p.wg.Wait() // wait for all consumeBars goroutines to finish
+}

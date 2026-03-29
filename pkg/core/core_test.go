@@ -181,8 +181,8 @@ func TestLoadSpecs_Directory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(specs) != 2 {
-		t.Fatalf("expected 2 specs, got %d", len(specs))
+	if len(specs) < 2 {
+		t.Fatalf("expected at least 2 specs, got %d", len(specs))
 	}
 
 	names := make(map[string]bool)

@@ -1,0 +1,58 @@
+series: asic_metrics
+timestamp:
+  field: timestamp_ns
+  precision: nanosecond
+
+dimensions:
+  - name: device_id
+    type: string
+  - name: asic_id
+    type: string
+  - name: port_id
+    type: string
+
+metrics:
+  - name: temp_max
+    field: temperature
+    type: int64
+    aggregation: max
+  - name: temp_min
+    field: temperature
+    type: int64
+    aggregation: min
+  - name: temp_avg_numerator
+    field: temperature
+    type: int64
+    aggregation: sum
+  - name: voltage_min
+    field: voltage_mv
+    type: int64
+    aggregation: min
+  - name: voltage_max
+    field: voltage_mv
+    type: int64
+    aggregation: max
+  - name: crc_errors_total
+    field: crc_errors_delta
+    type: uint64
+    aggregation: sum
+  - name: packet_drops_total
+    field: packet_drops
+    type: uint64
+    aggregation: sum
+  - name: memory_util_max
+    field: memory_util_bps
+    type: int64
+    aggregation: max
+  - name: sample_count
+    type: uint64
+    aggregation: count
+
+granularity:
+  rollup: 1s
+
+output:
+  kafka:
+    topic: tikr-bars-asic-1s
+    encoding: proto
+    on_failure: drop

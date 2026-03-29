@@ -1,4 +1,4 @@
-FROM golang:1.23-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 WORKDIR /app
 
@@ -12,6 +12,7 @@ RUN CGO_ENABLED=0 go build -o /app/bin/tikr ./cmd/tikr
 FROM gcr.io/distroless/static-debian12
 
 COPY --from=builder /app/bin/tikr /usr/local/bin/tikr
+COPY config /etc/tikr
 
 EXPOSE 9876 9877 9878
 
