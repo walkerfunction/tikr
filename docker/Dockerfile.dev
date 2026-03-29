@@ -1,0 +1,14 @@
+# Development image — pure Go, no CGo dependencies.
+FROM golang:1.23-bookworm
+
+WORKDIR /app
+
+# Cache Go dependencies first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy everything
+COPY . .
+
+# Default: run tests
+CMD ["go", "test", "-race", "-v", "./pkg/..."]

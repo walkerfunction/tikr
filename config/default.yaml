@@ -1,0 +1,31 @@
+server:
+  grpc_port: 9876
+  http_port: 9877
+
+storage:
+  data_dir: /data
+  ticks:
+    ttl: 6h
+    max_size_gb: 50
+  rollup:
+    ttl: 12h
+    max_size_gb: 5
+
+kafka:
+  brokers:
+    - "kafka:9092"
+
+telemetry:
+  enabled: true
+  service_name: tikr
+  kafka:
+    enabled: true
+    brokers:
+      - "kafka:9092"
+    metrics_topic: tikr-otel-metrics
+    encoding: proto
+  prometheus:
+    enabled: true
+    port: 9878
+
+specs_dir: /etc/tikr/specs

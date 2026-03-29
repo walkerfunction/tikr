@@ -1,0 +1,46 @@
+series: network_flows
+timestamp:
+  field: timestamp_ns
+  precision: nanosecond
+
+dimensions:
+  - name: src_ip
+    type: string
+  - name: dst_ip
+    type: string
+  - name: protocol
+    type: string
+
+metrics:
+  - name: bytes_total
+    field: bytes
+    type: uint64
+    aggregation: sum
+  - name: packets_total
+    field: packets
+    type: uint64
+    aggregation: sum
+  - name: max_latency_us
+    field: latency_us
+    type: int64
+    aggregation: max
+  - name: min_latency_us
+    field: latency_us
+    type: int64
+    aggregation: min
+  - name: avg_latency_numerator
+    field: latency_us
+    type: int64
+    aggregation: sum
+  - name: flow_count
+    type: uint64
+    aggregation: count
+
+granularity:
+  rollup: 1s
+
+output:
+  kafka:
+    topic: tikr-bars-network-1s
+    encoding: proto
+    on_failure: drop

@@ -1,0 +1,42 @@
+series: market_ticks
+timestamp:
+  field: timestamp_ns
+  precision: nanosecond
+
+dimensions:
+  - name: symbol
+    type: string
+
+metrics:
+  - name: open
+    field: price
+    type: int64
+    aggregation: first
+  - name: high
+    field: price
+    type: int64
+    aggregation: max
+  - name: low
+    field: price
+    type: int64
+    aggregation: min
+  - name: close
+    field: price
+    type: int64
+    aggregation: last
+  - name: volume
+    field: quantity
+    type: uint64
+    aggregation: sum
+  - name: tick_count
+    type: uint64
+    aggregation: count
+
+granularity:
+  rollup: 1s
+
+output:
+  kafka:
+    topic: tikr-bars-market-1s
+    encoding: proto
+    on_failure: drop

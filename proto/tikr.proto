@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package tikr.v1;
+
+option go_package = "github.com/tikr-dev/tikr/pkg/pb";
+
+// --- Ingest ---
+
+message IngestRequest {
+  string series = 1;
+  repeated TickData ticks = 2;
+}
+
+message TickData {
+  uint64 timestamp_ns = 1;
+  map<string, string> dimensions = 2;
+  map<string, int64> fields = 3;
+  uint32 sequence = 4;
+}
+
+message IngestResponse {
+  uint64 ticks_received = 1;
+}
+
+// --- Query ---
+
+message TickQuery {
+  string series = 1;
+  map<string, string> dimensions = 2;
+  uint64 start_ns = 3;
+  uint64 end_ns = 4;
+  uint32 limit = 5;
+}
+
+message BarQuery {
+  string series = 1;
+  map<string, string> dimensions = 2;
+  uint64 start_ns = 3;
+  uint64 end_ns = 4;
+}
+
+message BarData {
+  string series = 1;
+  uint64 bucket_ts = 2;
+  map<string, string> dimensions = 3;
+  map<string, int64> metrics = 4;
+  uint64 first_timestamp = 5;
+  uint64 last_timestamp = 6;
+  uint64 tick_count = 7;
+}
+
+// --- Admin ---
+
+message Empty {}
+
+message SeriesInfo {
+  string name = 1;
+  repeated string dimensions = 2;
+  repeated string metrics = 3;
+  string rollup = 4;
+}
+
+message SeriesList {
+  repeated SeriesInfo series = 1;
+}
+
+message ServerInfo {
+  string version = 1;
+  uint64 uptime_seconds = 2;
+  repeated SeriesInfo series = 3;
+}
+
+// --- Service ---
+
+service Tikr {
+  // Streaming ingest — client sends a stream of IngestRequests.
+  rpc IngestTicks(stream IngestRequest) returns (IngestResponse);
+
+  // Query raw ticks in a time range.
+  rpc QueryTicks(TickQuery) returns (stream TickData);
+
+  // Query rolled-up bars in a time range.
+  rpc QueryBars(BarQuery) returns (stream BarData);
+
+  // List all configured series.
+  rpc ListSeries(Empty) returns (SeriesList);
+
+  // Get server info.
+  rpc GetInfo(Empty) returns (ServerInfo);
+}
