@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/core"
 )
 
 // BatcherConfig controls batching behavior.

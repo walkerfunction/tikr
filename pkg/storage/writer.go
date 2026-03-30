@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/core"
 )
 
 // Writer handles batch writes to Pebble.

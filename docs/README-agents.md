@@ -6,7 +6,7 @@ Context file for AI coding agents (Claude, Copilot, Cursor, etc.) working on thi
 
 - **What**: On-prem edge rollup engine for high-frequency time series
 - **Repo**: https://github.com/walkerfunction/tikr
-- **Module**: `github.com/tikr-dev/tikr`
+- **Module**: `github.com/walkerfunction/tikr`
 - **Language**: Go 1.24, pure Go (no CGO required for builds)
 - **License**: Apache 2.0
 

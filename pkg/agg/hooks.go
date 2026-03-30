@@ -3,7 +3,7 @@ package agg
 import (
 	"context"
 
-	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/core"
 )
 
 // BarHook is called when a rolled-up bar is flushed.

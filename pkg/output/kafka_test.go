@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/core"
 )
 
 func TestKafkaProducer_DropSemantics(t *testing.T) {

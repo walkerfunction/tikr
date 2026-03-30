@@ -14,15 +14,15 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/tikr-dev/tikr/pkg/agg"
-	"github.com/tikr-dev/tikr/pkg/config"
-	"github.com/tikr-dev/tikr/pkg/core"
-	"github.com/tikr-dev/tikr/pkg/ingest"
-	"github.com/tikr-dev/tikr/pkg/output"
-	pb "github.com/tikr-dev/tikr/pkg/pb"
-	"github.com/tikr-dev/tikr/pkg/query"
-	"github.com/tikr-dev/tikr/pkg/storage"
-	"github.com/tikr-dev/tikr/pkg/telemetry"
+	"github.com/walkerfunction/tikr/pkg/agg"
+	"github.com/walkerfunction/tikr/pkg/config"
+	"github.com/walkerfunction/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/ingest"
+	"github.com/walkerfunction/tikr/pkg/output"
+	pb "github.com/walkerfunction/tikr/pkg/pb"
+	"github.com/walkerfunction/tikr/pkg/query"
+	"github.com/walkerfunction/tikr/pkg/storage"
+	"github.com/walkerfunction/tikr/pkg/telemetry"
 )
 
 var version = "0.1.0"

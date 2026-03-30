@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tikr-dev/tikr/pkg/agg"
-	"github.com/tikr-dev/tikr/pkg/core"
-	"github.com/tikr-dev/tikr/pkg/storage"
+	"github.com/walkerfunction/tikr/pkg/agg"
+	"github.com/walkerfunction/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/storage"
 )
 
 func TestBatcher_FlushOnSize(t *testing.T) {

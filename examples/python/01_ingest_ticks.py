@@ -18,7 +18,9 @@ from tikr import TikrClient, Tick
 TIKR_ADDR = os.environ.get("TIKR_ADDR", "localhost:9876")
 
 
-def generate_ticks(symbol: str, num_seconds: int = 5, ticks_per_sec: int = 100) -> list[Tick]:
+def generate_ticks(
+    symbol: str, num_seconds: int = 5, ticks_per_sec: int = 100
+) -> list[Tick]:
     """Generate realistic market tick data for a symbol."""
     base_price = 17500  # $175.00 in fixed-point (* 100)
     base_time = int(time.time()) * 1_000_000_000
@@ -27,13 +29,17 @@ def generate_ticks(symbol: str, num_seconds: int = 5, ticks_per_sec: int = 100) 
     for sec in range(num_seconds):
         for i in range(ticks_per_sec):
             ts = base_time + sec * 1_000_000_000 + i * (1_000_000_000 // ticks_per_sec)
-            ticks.append(Tick(
-                timestamp_ns=ts,
-                dimensions={"symbol": symbol},
-                fields={"price": base_price + random.randint(-50, 50),
-                         "quantity": random.randint(1, 200)},
-                sequence=i,
-            ))
+            ticks.append(
+                Tick(
+                    timestamp_ns=ts,
+                    dimensions={"symbol": symbol},
+                    fields={
+                        "price": base_price + random.randint(-50, 50),
+                        "quantity": random.randint(1, 200),
+                    },
+                    sequence=i,
+                )
+            )
     return ticks
 
 
@@ -68,10 +74,12 @@ with TikrClient(TIKR_ADDR) as client:
     print(f"  got {len(bars)} bars")
     for bar in bars:
         m = bar.metrics
-        print(f"    bucket={bar.bucket_ts} "
-              f"open={m.get('open', '?')} high={m.get('high', '?')} "
-              f"low={m.get('low', '?')} close={m.get('close', '?')} "
-              f"volume={m.get('volume', '?')} ticks={bar.tick_count}")
+        print(
+            f"    bucket={bar.bucket_ts} "
+            f"open={m.get('open', '?')} high={m.get('high', '?')} "
+            f"low={m.get('low', '?')} close={m.get('close', '?')} "
+            f"volume={m.get('volume', '?')} ticks={bar.tick_count}"
+        )
     print()
 
     # 4. Query raw ticks
@@ -85,10 +93,14 @@ with TikrClient(TIKR_ADDR) as client:
     )
     print(f"  got {len(ticks)} ticks")
     for t in ticks[:5]:
-        print(f"    ts={t.timestamp_ns} price={t.fields.get('price', '?')} qty={t.fields.get('quantity', '?')}")
+        print(
+            f"    ts={t.timestamp_ns} price={t.fields.get('price', '?')} qty={t.fields.get('quantity', '?')}"
+        )
     if len(ticks) > 5:
         print(f"    ... and {len(ticks) - 5} more")
 
     print()
     print("Done! Tikr ingested ticks, rolled them into 1s bars, and served queries.")
-    print("In production, those bars would also be pushed to Kafka for your cloud TSDB.")
+    print(
+        "In production, those bars would also be pushed to Kafka for your cloud TSDB."
+    )

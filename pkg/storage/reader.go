@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/core"
 )
 
 // Reader handles reads from Pebble.

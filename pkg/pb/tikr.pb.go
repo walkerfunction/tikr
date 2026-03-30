@@ -715,7 +715,7 @@ const file_tikr_proto_rawDesc = "" +
 	"\tQueryBars\x12\x11.tikr.v1.BarQuery\x1a\x10.tikr.v1.BarData0\x01\x121\n" +
 	"\n" +
 	"ListSeries\x12\x0e.tikr.v1.Empty\x1a\x13.tikr.v1.SeriesList\x12.\n" +
-	"\aGetInfo\x12\x0e.tikr.v1.Empty\x1a\x13.tikr.v1.ServerInfoB!Z\x1fgithub.com/tikr-dev/tikr/pkg/pbb\x06proto3"
+	"\aGetInfo\x12\x0e.tikr.v1.Empty\x1a\x13.tikr.v1.ServerInfoB'Z%github.com/walkerfunction/tikr/pkg/pbb\x06proto3"
 
 var (
 	file_tikr_proto_rawDescOnce sync.Once

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tikr.v1;
 
-option go_package = "github.com/tikr-dev/tikr/pkg/pb";
+option go_package = "github.com/walkerfunction/tikr/pkg/pb";
 
 // --- Ingest ---
 

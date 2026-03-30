@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tikr-dev/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/core"
 )
 
 // BucketState holds the in-memory aggregation state for one dimension key in one time bucket.

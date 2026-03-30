@@ -1,4 +1,4 @@
-module github.com/tikr-dev/tikr
+module github.com/walkerfunction/tikr
 
 go 1.24.0
 
