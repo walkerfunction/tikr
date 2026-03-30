@@ -112,6 +112,7 @@ func registerInstruments(provider *sdkmetric.MeterProvider, serviceName string) 
 
 	queryLatencyMs, err := meter.Float64Histogram("tikr.query.latency_ms",
 		metric.WithDescription("Query latency in milliseconds"),
+		metric.WithUnit("ms"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating tikr.query.latency_ms: %w", err)
@@ -130,6 +131,9 @@ func registerInstruments(provider *sdkmetric.MeterProvider, serviceName string) 
 }
 
 // Shutdown flushes pending metrics and releases resources.
+// It is safe to call with a nil provider, but NOT idempotent: the underlying
+// OTel MeterProvider.Shutdown returns an error on the second call. Callers
+// should ensure Shutdown is called exactly once.
 func (m *Metrics) Shutdown(ctx context.Context) error {
 	if m.provider != nil {
 		return m.provider.Shutdown(ctx)

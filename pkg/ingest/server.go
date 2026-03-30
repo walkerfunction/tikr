@@ -17,12 +17,8 @@ type Server struct {
 }
 
 // NewServer creates a new ingest gRPC server.
-func NewServer(pipeline *Pipeline) *Server {
-	return &Server{pipeline: pipeline}
-}
-
-// NewServerWithMetrics creates an ingest server with OTel instrumentation.
-func NewServerWithMetrics(pipeline *Pipeline, m *telemetry.Metrics) *Server {
+// Pass nil for metrics if OTel instrumentation is not needed.
+func NewServer(pipeline *Pipeline, m *telemetry.Metrics) *Server {
 	return &Server{pipeline: pipeline, metrics: m}
 }
 
@@ -61,8 +57,9 @@ func (s *Server) IngestTicks(stream pb.Tikr_IngestTicksServer) error {
 			batchIngested++
 		}
 
+		// Note: TicksTotal is counted in Pipeline.Ingest (per-tick, regardless of caller).
+		// Only record batch size here since it is server-specific.
 		if s.metrics != nil {
-			s.metrics.TicksTotal.Add(stream.Context(), batchIngested)
 			s.metrics.BatchSize.Record(stream.Context(), float64(batchIngested))
 		}
 	}

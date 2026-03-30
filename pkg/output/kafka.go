@@ -22,8 +22,14 @@ type KafkaProducer struct {
 
 // NewKafkaProducer creates a Kafka writer per series topic.
 // Each writer is configured for async, fire-and-forget delivery.
-func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec) (*KafkaProducer, error) {
-	writers := make(map[string]*kafka.Writer, len(specs))
+// Pass nil for metrics if OTel instrumentation is not needed.
+func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec, m *telemetry.Metrics) (*KafkaProducer, error) {
+	// Create the struct first so the Completion closure can reference kp.metrics.
+	kp := &KafkaProducer{
+		writers: make(map[string]*kafka.Writer, len(specs)),
+		metrics: m,
+	}
+
 	for _, spec := range specs {
 		topic := spec.Output.Kafka.Topic
 		if topic == "" {
@@ -40,21 +46,14 @@ func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec) (*KafkaProduce
 			Completion: func(msgs []kafka.Message, err error) {
 				if err != nil {
 					log.Printf("kafka: async write failed for %d message(s): %v", len(msgs), err)
+					if kp.metrics != nil {
+						kp.metrics.KafkaDropsTotal.Add(context.Background(), int64(len(msgs)))
+					}
 				}
 			},
 		}
-		writers[spec.Series] = w
+		kp.writers[spec.Series] = w
 	}
-	return &KafkaProducer{writers: writers}, nil
-}
-
-// NewKafkaProducerWithMetrics creates a Kafka producer with OTel instrumentation.
-func NewKafkaProducerWithMetrics(brokers []string, specs []*core.SeriesSpec, m *telemetry.Metrics) (*KafkaProducer, error) {
-	kp, err := NewKafkaProducer(brokers, specs)
-	if err != nil {
-		return nil, err
-	}
-	kp.metrics = m
 	return kp, nil
 }
 
@@ -116,9 +115,9 @@ func dimensionKey(dims map[string]string) string {
 	}
 	sort.Strings(keys)
 
-	vals := make([]string, len(keys))
+	parts := make([]string, len(keys))
 	for i, k := range keys {
-		vals[i] = dims[k]
+		parts[i] = k + "=" + dims[k]
 	}
-	return strings.Join(vals, "|")
+	return strings.Join(parts, "|")
 }

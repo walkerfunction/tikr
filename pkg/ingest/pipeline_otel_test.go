@@ -122,7 +122,7 @@ func TestOTel_TicksIngestedAndBarsFlushed(t *testing.T) {
 	t.Logf("=== RAW OTEL MESSAGE ===")
 	for _, sm := range rm.ScopeMetrics {
 		t.Logf("Scope: %s", sm.Scope.Name)
-		for _, m := range rm.ScopeMetrics[0].Metrics {
+		for _, m := range sm.Metrics {
 			t.Logf("  Metric: %s (%s)", m.Name, m.Description)
 			switch data := m.Data.(type) {
 			case metricdata.Sum[int64]:
@@ -137,7 +137,6 @@ func TestOTel_TicksIngestedAndBarsFlushed(t *testing.T) {
 				}
 			}
 		}
-		_ = sm
 	}
 	t.Logf("========================")
 

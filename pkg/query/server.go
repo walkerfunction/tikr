@@ -33,16 +33,8 @@ type Server struct {
 }
 
 // NewServer creates a new query gRPC server.
-func NewServer(reader *storage.Reader, pipeline *ingest.Pipeline, specs []*core.SeriesSpec) *Server {
-	return &Server{
-		reader:   reader,
-		pipeline: pipeline,
-		specs:    specs,
-	}
-}
-
-// NewServerWithMetrics creates a query server with OTel instrumentation.
-func NewServerWithMetrics(reader *storage.Reader, pipeline *ingest.Pipeline, specs []*core.SeriesSpec, m *telemetry.Metrics) *Server {
+// Pass nil for metrics if OTel instrumentation is not needed.
+func NewServer(reader *storage.Reader, pipeline *ingest.Pipeline, specs []*core.SeriesSpec, m *telemetry.Metrics) *Server {
 	return &Server{
 		reader:   reader,
 		pipeline: pipeline,
@@ -65,6 +57,13 @@ func validateTimeRange(startNs, endNs uint64) error {
 // QueryTicks returns raw ticks for a series+dimension in a time range.
 func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) error {
 	start := time.Now()
+	defer func() {
+		if s.metrics != nil {
+			ctx := stream.Context()
+			s.metrics.QueryRequestsTotal.Add(ctx, 1, attrTypeTicks)
+			s.metrics.QueryLatencyMs.Record(ctx, float64(time.Since(start).Milliseconds()))
+		}
+	}()
 
 	if err := validateTimeRange(req.StartNs, req.EndNs); err != nil {
 		return err
@@ -92,18 +91,19 @@ func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) 
 		}
 	}
 
-	if s.metrics != nil {
-		ctx := stream.Context()
-		s.metrics.QueryRequestsTotal.Add(ctx, 1, attrTypeTicks)
-		s.metrics.QueryLatencyMs.Record(ctx, float64(time.Since(start).Milliseconds()))
-	}
-
 	return nil
 }
 
 // QueryBars returns rolled-up bars for a series+dimension in a time range.
 func (s *Server) QueryBars(req *pb.BarQuery, stream pb.Tikr_QueryBarsServer) error {
 	start := time.Now()
+	defer func() {
+		if s.metrics != nil {
+			ctx := stream.Context()
+			s.metrics.QueryRequestsTotal.Add(ctx, 1, attrTypeBars)
+			s.metrics.QueryLatencyMs.Record(ctx, float64(time.Since(start).Milliseconds()))
+		}
+	}()
 
 	if err := validateTimeRange(req.StartNs, req.EndNs); err != nil {
 		return err
@@ -132,12 +132,6 @@ func (s *Server) QueryBars(req *pb.BarQuery, stream pb.Tikr_QueryBarsServer) err
 		}); err != nil {
 			return err
 		}
-	}
-
-	if s.metrics != nil {
-		ctx := stream.Context()
-		s.metrics.QueryRequestsTotal.Add(ctx, 1, attrTypeBars)
-		s.metrics.QueryLatencyMs.Record(ctx, float64(time.Since(start).Milliseconds()))
 	}
 
 	return nil

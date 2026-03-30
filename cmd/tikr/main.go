@@ -28,6 +28,7 @@ var version = "0.1.0" // overridden by ldflags: -X main.version=...
 
 func init() {
 	query.Version = version
+	output.Version = version
 }
 
 func main() {
@@ -90,7 +91,7 @@ func main() {
 	var barHook agg.BarHook = agg.NoopHook{}
 	var kafkaProducer *output.KafkaProducer
 	if len(brokers) > 0 && brokers[0] != "" {
-		kp, err := output.NewKafkaProducerWithMetrics(brokers, specs, metrics)
+		kp, err := output.NewKafkaProducer(brokers, specs, metrics)
 		if err != nil {
 			log.Fatalf("kafka producer: %v", err)
 		}
@@ -126,8 +127,8 @@ func main() {
 		grpc.MaxSendMsgSize(16*1024*1024), // 16MB max query response
 	)
 	combined := &combinedServer{
-		ingest: ingest.NewServerWithMetrics(pipeline, metrics),
-		query:  query.NewServerWithMetrics(reader, pipeline, specs, metrics),
+		ingest: ingest.NewServer(pipeline, metrics),
+		query:  query.NewServer(reader, pipeline, specs, metrics),
 	}
 	pb.RegisterTikrServer(grpcServer, combined)
 

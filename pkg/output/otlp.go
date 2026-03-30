@@ -11,6 +11,10 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 )
 
+// Version is the instrumentation scope version used in OTLP output.
+// Set from main via ldflags to keep it in sync with the binary version.
+var Version = "dev"
+
 // BarToOTLP converts a rolled-up bar into OTLP protobuf bytes.
 //
 // Each metric in the bar (open, high, low, close, volume, etc.) becomes a
@@ -18,8 +22,16 @@ import (
 // the output consumable by any OTel-compatible backend (Grafana, Datadog,
 // ClickHouse, etc.) without custom deserializers.
 func BarToOTLP(bar *core.Bar) ([]byte, error) {
+	// attrs is shared across all NumberDataPoint entries for performance.
+	// This is safe because protobuf Marshal is read-only on the slice.
+	// If future code needs per-metric attribute mutation, clone the slice per data point.
 	attrs := dimensionsToAttributes(bar.Dimensions)
 
+	// Design decision: Gauge is used for all bar metrics (including volume and tick_count)
+	// because each bar represents a point-in-time aggregation result for a time bucket,
+	// not a running counter. For backends that need rate calculations across buckets,
+	// consider switching additive metrics to Sum with AggregationTemporality_DELTA.
+	//
 	// One OTLP Metric per bar metric field
 	var metrics []*metricspb.Metric
 	for name, value := range bar.Metrics {
@@ -68,7 +80,7 @@ func BarToOTLP(bar *core.Bar) ([]byte, error) {
 		ScopeMetrics: []*metricspb.ScopeMetrics{{
 			Scope: &commonpb.InstrumentationScope{
 				Name:    "tikr",
-				Version: "0.1.0",
+				Version: Version,
 			},
 			Metrics: metrics,
 		}},

@@ -23,7 +23,7 @@ func TestKafkaProducer_DropSemantics(t *testing.T) {
 	}
 
 	// Use an unreachable broker to verify fire-and-forget behaviour.
-	kp, err := NewKafkaProducer([]string{"localhost:19092"}, specs)
+	kp, err := NewKafkaProducer([]string{"localhost:19092"}, specs, nil)
 	if err != nil {
 		t.Fatalf("NewKafkaProducer: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestKafkaProducer_NoWriter(t *testing.T) {
 		},
 	}
 
-	kp, err := NewKafkaProducer([]string{"localhost:19092"}, specs)
+	kp, err := NewKafkaProducer([]string{"localhost:19092"}, specs, nil)
 	if err != nil {
 		t.Fatalf("NewKafkaProducer: %v", err)
 	}
@@ -81,11 +81,11 @@ func TestDimensionKey(t *testing.T) {
 		want string
 	}{
 		{"empty", nil, ""},
-		{"single", map[string]string{"sym": "AAPL"}, "AAPL"},
+		{"single", map[string]string{"sym": "AAPL"}, "sym=AAPL"},
 		{
 			"sorted",
 			map[string]string{"exchange": "NYSE", "symbol": "AAPL"},
-			"NYSE|AAPL", // exchange < symbol
+			"exchange=NYSE|symbol=AAPL", // exchange < symbol
 		},
 	}
 	for _, tt := range tests {

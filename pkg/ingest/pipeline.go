@@ -116,6 +116,9 @@ func (p *Pipeline) Ingest(tick core.Tick) error {
 	sp.Batcher.Add(tick)
 
 	if p.metrics != nil {
+		// context.Background() is fine for counter increments — OTel Add is a simple
+		// atomic operation that does not need caller trace/span context.
+		// TODO: accept context.Context parameter to enable trace correlation when tracing is added.
 		p.metrics.TicksTotal.Add(context.Background(), 1)
 	}
 
