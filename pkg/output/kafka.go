@@ -10,9 +10,7 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/walkerfunction/tikr/pkg/core"
-	"github.com/walkerfunction/tikr/pkg/pb"
 	"github.com/walkerfunction/tikr/pkg/telemetry"
-	"google.golang.org/protobuf/proto"
 )
 
 // KafkaProducer pushes rolled-up bars to Kafka topics.
@@ -60,7 +58,7 @@ func NewKafkaProducerWithMetrics(brokers []string, specs []*core.SeriesSpec, m *
 	return kp, nil
 }
 
-// OnBarFlushed converts a Bar to protobuf and publishes it to Kafka.
+// OnBarFlushed encodes a Bar as OTLP protobuf and publishes it to Kafka.
 // On any error the bar is dropped and the error is logged (fire-and-forget).
 func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error {
 	w, ok := kp.writers[bar.Series]
@@ -68,19 +66,9 @@ func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error 
 		return nil // no Kafka output configured for this series
 	}
 
-	barPB := &pb.BarData{
-		Series:         bar.Series,
-		BucketTs:       bar.BucketTs,
-		Dimensions:     bar.Dimensions,
-		Metrics:        bar.Metrics,
-		FirstTimestamp: bar.FirstTimestamp,
-		LastTimestamp:   bar.LastTimestamp,
-		TickCount:      bar.TickCount,
-	}
-
-	data, err := proto.Marshal(barPB)
+	data, err := BarToOTLP(bar)
 	if err != nil {
-		log.Printf("kafka: proto marshal failed for series %s: %v", bar.Series, err)
+		log.Printf("kafka: OTLP marshal failed for series %s: %v", bar.Series, err)
 		return nil
 	}
 

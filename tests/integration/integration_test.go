@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/walkerfunction/tikr/pkg/pb"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
 
 // Package-level state shared across all tests via TestMain.
@@ -859,21 +860,21 @@ func TestKafkaIntegration(t *testing.T) {
 	})
 	defer reader.Close()
 
-	// Read messages with a timeout — we expect at least one bar matching our symbol
+	// Read messages with a timeout — we expect at least one OTLP message matching our symbol
 	deadline := time.After(10 * time.Second)
-	var matchedBar *pb.BarData
+	var matchedMetrics map[string]int64
 
-	for matchedBar == nil {
+	for matchedMetrics == nil {
 		select {
 		case <-deadline:
 			// Dump Tikr container logs for debugging
-		logReader, _ := tikrC.Logs(ctx)
-		if logReader != nil {
-			logBytes, _ := io.ReadAll(logReader)
-			t.Logf("tikr logs:\n%s", string(logBytes))
-			logReader.Close()
-		}
-		t.Fatal("timed out waiting for bar on Kafka topic tikr-bars-market-1s")
+			logReader, _ := tikrC.Logs(ctx)
+			if logReader != nil {
+				logBytes, _ := io.ReadAll(logReader)
+				t.Logf("tikr logs:\n%s", string(logBytes))
+				logReader.Close()
+			}
+			t.Fatal("timed out waiting for OTLP bar on Kafka topic tikr-bars-market-1s")
 		default:
 		}
 
@@ -881,24 +882,50 @@ func TestKafkaIntegration(t *testing.T) {
 		msg, err := reader.ReadMessage(readCtx)
 		readCancel()
 		if err != nil {
-			// Timeout on ReadMessage is expected while waiting for data
 			continue
 		}
 
-		var bar pb.BarData
-		if err := proto.Unmarshal(msg.Value, &bar); err != nil {
-			t.Logf("skipping message: proto unmarshal error: %v", err)
+		// Decode OTLP ResourceMetrics
+		var rm metricspb.ResourceMetrics
+		if err := proto.Unmarshal(msg.Value, &rm); err != nil {
+			t.Logf("skipping message: OTLP unmarshal error: %v", err)
 			continue
 		}
 
-		// Match on our unique symbol
-		if bar.Dimensions["symbol"] == symbol {
-			matchedBar = &bar
-			t.Logf("found bar: series=%s bucket=%d ticks=%d", bar.Series, bar.BucketTs, bar.TickCount)
+		// Check if this message has our symbol in the data point attributes
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				gauge := m.GetGauge()
+				if gauge == nil {
+					continue
+				}
+				for _, dp := range gauge.DataPoints {
+					for _, attr := range dp.Attributes {
+						if attr.Key == "symbol" && attr.Value.GetStringValue() == symbol {
+							// Found our bar — extract all metrics from this message
+							matchedMetrics = make(map[string]int64)
+							for _, mm := range sm.Metrics {
+								g := mm.GetGauge()
+								if g != nil && len(g.DataPoints) > 0 {
+									matchedMetrics[mm.Name] = g.DataPoints[0].GetAsInt()
+								}
+							}
+							t.Logf("found OTLP bar with %d metrics", len(matchedMetrics))
+							break
+						}
+					}
+					if matchedMetrics != nil {
+						break
+					}
+				}
+				if matchedMetrics != nil {
+					break
+				}
+			}
 		}
 	}
 
-	// 6. Verify bar metrics match expected values exactly
+	// 6. Verify OTLP metric values match expected values exactly
 	failures := 0
 	check := func(name string, got, want int64) {
 		if got != want {
@@ -909,26 +936,22 @@ func TestKafkaIntegration(t *testing.T) {
 		}
 	}
 
-	check("open  (first)", matchedBar.Metrics["open"], wantOpen)
-	check("high  (max)", matchedBar.Metrics["high"], wantHigh)
-	check("low   (min)", matchedBar.Metrics["low"], wantLow)
-	check("close (last)", matchedBar.Metrics["close"], wantClose)
-	check("volume (sum)", matchedBar.Metrics["volume"], wantVolume)
+	check("open  (first)", matchedMetrics["market_ticks.open"], wantOpen)
+	check("high  (max)", matchedMetrics["market_ticks.high"], wantHigh)
+	check("low   (min)", matchedMetrics["market_ticks.low"], wantLow)
+	check("close (last)", matchedMetrics["market_ticks.close"], wantClose)
+	check("volume (sum)", matchedMetrics["market_ticks.volume"], wantVolume)
 
-	if matchedBar.TickCount != wantCount {
-		t.Errorf("  tick_count: got %d, want %d (MISMATCH)", matchedBar.TickCount, wantCount)
+	tickCount := matchedMetrics["market_ticks.tick_count"]
+	if tickCount != int64(wantCount) {
+		t.Errorf("  tick_count: got %d, want %d (MISMATCH)", tickCount, wantCount)
 		failures++
 	} else {
-		t.Logf("  tick_count: %d OK", matchedBar.TickCount)
-	}
-
-	if matchedBar.Series != "market_ticks" {
-		t.Errorf("  series: got %s, want market_ticks", matchedBar.Series)
-		failures++
+		t.Logf("  tick_count: %d OK", tickCount)
 	}
 
 	if failures > 0 {
-		t.Fatalf("%d metric(s) failed verification — Kafka bar is NOT correct", failures)
+		t.Fatalf("%d metric(s) failed verification — Kafka OTLP bar is NOT correct", failures)
 	}
-	t.Log("ALL Kafka bar metrics match expected values — Kafka integration verified")
+	t.Log("ALL Kafka OTLP bar metrics match expected values — OTLP Kafka integration verified")
 }
