@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.2.0] - 2026-03-29
+
+### Added
+
+- OTLP-native Kafka output -- bars encoded as standard OpenTelemetry protobuf
+- OpenTelemetry instrumentation across the full pipeline (ticks in, bars flushed, Kafka writes/drops, query latency)
+- Pre-allocated OTel attribute sets for zero-allocation hot paths
+- Package-level doc comments for pkg.go.dev
+
+### Changed
+
+- Kafka bar encoding switched from custom protobuf to standard OTLP format
+- Kafka producer accepts `*telemetry.Metrics` for async drop tracking
+- Query server records request counts and latency via OTel
+
+### Fixed
+
+- Double-counting of ticks_total (removed duplicate counter in ingest server)
+- Kafka async drop metrics not firing (restructured producer initialization)
+- Batcher race condition on shutdown
+
 ## [v0.1.0] - 2026-03-29
 
 ### Added

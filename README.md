@@ -1,5 +1,7 @@
 # Tikr
 
+[![CI](https://github.com/walkerfunction/tikr/actions/workflows/ci.yml/badge.svg)](https://github.com/walkerfunction/tikr/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/walkerfunction/tikr.svg)](https://pkg.go.dev/github.com/walkerfunction/tikr)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 **On-prem edge rollup engine for high-frequency time series.** Tikr ingests millions of data points per second via gRPC, rolls them into 1-second bars on the edge, and forwards compressed summaries to Kafka for cloud storage.

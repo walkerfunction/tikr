@@ -29,10 +29,10 @@ make bench
 
 ## Pull Request Process
 
-1. **Fork** the repository and create a feature branch from `main`.
+1. **Fork** the repository and create a feature branch from `master`.
 2. **Write tests** for any new functionality.
 3. **Run `make test`** and ensure all tests pass.
-4. **Open a PR** against `main` with a clear description of the change.
+4. **Open a PR** against `master` with a clear description of the change.
 5. A maintainer will review and merge once CI is green.
 
 ## Project Structure
@@ -47,7 +47,7 @@ pkg/            -- core library packages
   output/       -- Kafka output
   query/        -- gRPC query service
   storage/      -- Pebble storage layer
-  telemetry/    -- Prometheus metrics
+  telemetry/    -- OpenTelemetry metrics
 tests/          -- integration tests
 proto/          -- protobuf definitions
 docker/         -- Dockerfiles and Compose
