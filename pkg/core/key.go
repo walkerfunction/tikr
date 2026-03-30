@@ -69,9 +69,9 @@ func DimensionHash(dims map[string]string) uint64 {
 	h := fnv.New64a()
 	for _, k := range keys {
 		h.Write([]byte(k))
-		h.Write([]byte{0x00})
+		h.Write([]byte("="))
 		h.Write([]byte(dims[k]))
-		h.Write([]byte{0x00})
+		h.Write([]byte("\x00"))
 	}
 	return h.Sum64()
 }

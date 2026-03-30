@@ -98,9 +98,11 @@ func (b *Batcher) Flush() {
 }
 
 // Close flushes remaining ticks and marks the batcher as closed.
+// Sets closed before flushing so no new ticks are accepted during
+// the unlock window inside flushLocked.
 func (b *Batcher) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.flushLocked()
 	b.closed = true
+	b.flushLocked()
 }
