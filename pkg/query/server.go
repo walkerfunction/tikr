@@ -5,13 +5,23 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
 	"github.com/walkerfunction/tikr/pkg/core"
 	"github.com/walkerfunction/tikr/pkg/ingest"
 	pb "github.com/walkerfunction/tikr/pkg/pb"
 	"github.com/walkerfunction/tikr/pkg/storage"
+	"github.com/walkerfunction/tikr/pkg/telemetry"
 )
 
 const maxQueryRangeNs = 24 * uint64(time.Hour)
+
+// Pre-allocated attribute options to avoid per-call allocations.
+var (
+	attrTypeTicks = metric.WithAttributes(attribute.String("type", "ticks"))
+	attrTypeBars  = metric.WithAttributes(attribute.String("type", "bars"))
+)
 
 // Server implements the gRPC Tikr query service.
 type Server struct {
@@ -19,6 +29,7 @@ type Server struct {
 	reader   *storage.Reader
 	pipeline *ingest.Pipeline
 	specs    []*core.SeriesSpec
+	metrics  *telemetry.Metrics // nil-safe
 }
 
 // NewServer creates a new query gRPC server.
@@ -27,6 +38,16 @@ func NewServer(reader *storage.Reader, pipeline *ingest.Pipeline, specs []*core.
 		reader:   reader,
 		pipeline: pipeline,
 		specs:    specs,
+	}
+}
+
+// NewServerWithMetrics creates a query server with OTel instrumentation.
+func NewServerWithMetrics(reader *storage.Reader, pipeline *ingest.Pipeline, specs []*core.SeriesSpec, m *telemetry.Metrics) *Server {
+	return &Server{
+		reader:   reader,
+		pipeline: pipeline,
+		specs:    specs,
+		metrics:  m,
 	}
 }
 
@@ -43,6 +64,8 @@ func validateTimeRange(startNs, endNs uint64) error {
 
 // QueryTicks returns raw ticks for a series+dimension in a time range.
 func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) error {
+	start := time.Now()
+
 	if err := validateTimeRange(req.StartNs, req.EndNs); err != nil {
 		return err
 	}
@@ -69,11 +92,19 @@ func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) 
 		}
 	}
 
+	if s.metrics != nil {
+		ctx := stream.Context()
+		s.metrics.QueryRequestsTotal.Add(ctx, 1, attrTypeTicks)
+		s.metrics.QueryLatencyMs.Record(ctx, float64(time.Since(start).Milliseconds()))
+	}
+
 	return nil
 }
 
 // QueryBars returns rolled-up bars for a series+dimension in a time range.
 func (s *Server) QueryBars(req *pb.BarQuery, stream pb.Tikr_QueryBarsServer) error {
+	start := time.Now()
+
 	if err := validateTimeRange(req.StartNs, req.EndNs); err != nil {
 		return err
 	}
@@ -101,6 +132,12 @@ func (s *Server) QueryBars(req *pb.BarQuery, stream pb.Tikr_QueryBarsServer) err
 		}); err != nil {
 			return err
 		}
+	}
+
+	if s.metrics != nil {
+		ctx := stream.Context()
+		s.metrics.QueryRequestsTotal.Add(ctx, 1, attrTypeBars)
+		s.metrics.QueryLatencyMs.Record(ctx, float64(time.Since(start).Milliseconds()))
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"github.com/walkerfunction/tikr/pkg/agg"
 	"github.com/walkerfunction/tikr/pkg/core"
 	"github.com/walkerfunction/tikr/pkg/storage"
+	"github.com/walkerfunction/tikr/pkg/telemetry"
 )
 
 // SeriesPipeline holds the processing components for a single series.
@@ -24,8 +26,9 @@ type Pipeline struct {
 	mu       sync.RWMutex
 	series   map[string]*SeriesPipeline // series name → pipeline
 	writer   *storage.Writer
-	barSink  func(*core.Bar) // called for each flushed bar (e.g., write to storage + push to Kafka)
-	wg       sync.WaitGroup  // tracks consumeBars goroutines
+	barSink  func(*core.Bar)        // called for each flushed bar (e.g., write to storage + push to Kafka)
+	metrics  *telemetry.Metrics     // nil-safe
+	wg       sync.WaitGroup         // tracks consumeBars goroutines
 }
 
 // PipelineConfig holds the configuration for creating a pipeline.
@@ -42,6 +45,10 @@ type PipelineConfig struct {
 	// It is called from the consumeBars goroutine after the bar is written to storage.
 	// Do not use this for side-effects that duplicate the Hook path (e.g., Kafka).
 	OnBarFlushed func(*core.Bar)
+
+	// Metrics is optional OTel instrumentation. When set, the pipeline records
+	// BarsFlushedTotal in the consumeBars goroutine.
+	Metrics *telemetry.Metrics
 }
 
 // NewPipeline creates a pipeline for all configured series.
@@ -50,6 +57,7 @@ func NewPipeline(cfg PipelineConfig) (*Pipeline, error) {
 		series:  make(map[string]*SeriesPipeline),
 		writer:  cfg.Writer,
 		barSink: cfg.OnBarFlushed,
+		metrics: cfg.Metrics,
 	}
 
 	// Verify series ID uniqueness before proceeding (H-1)
@@ -128,6 +136,10 @@ func (p *Pipeline) consumeBars(sp *SeriesPipeline) {
 		// Write bar to local storage
 		if err := p.writer.WriteBar(sp.SeriesID, bar); err != nil {
 			log.Printf("error writing bar for %s: %v", sp.Spec.Series, err)
+		}
+
+		if p.metrics != nil {
+			p.metrics.BarsFlushedTotal.Add(context.Background(), 1)
 		}
 
 		// Call external sink (e.g., Kafka push)

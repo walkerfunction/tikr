@@ -90,7 +90,7 @@ func main() {
 	var barHook agg.BarHook = agg.NoopHook{}
 	var kafkaProducer *output.KafkaProducer
 	if len(brokers) > 0 && brokers[0] != "" {
-		kp, err := output.NewKafkaProducer(brokers, specs)
+		kp, err := output.NewKafkaProducerWithMetrics(brokers, specs, metrics)
 		if err != nil {
 			log.Fatalf("kafka producer: %v", err)
 		}
@@ -105,6 +105,7 @@ func main() {
 		Writer:     writer,
 		Hook:       barHook,
 		BatcherCfg: ingest.DefaultBatcherConfig(),
+		Metrics:    metrics,
 		OnBarFlushed: func(bar *core.Bar) {
 			log.Printf("bar: %s %s bucket=%d ticks=%d",
 				bar.Series, core.DimensionString(bar.Dimensions), bar.BucketTs, bar.TickCount)
@@ -126,7 +127,7 @@ func main() {
 	)
 	combined := &combinedServer{
 		ingest: ingest.NewServerWithMetrics(pipeline, metrics),
-		query:  query.NewServer(reader, pipeline, specs),
+		query:  query.NewServerWithMetrics(reader, pipeline, specs, metrics),
 	}
 	pb.RegisterTikrServer(grpcServer, combined)
 

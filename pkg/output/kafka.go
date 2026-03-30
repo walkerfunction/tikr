@@ -11,6 +11,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/walkerfunction/tikr/pkg/core"
 	"github.com/walkerfunction/tikr/pkg/pb"
+	"github.com/walkerfunction/tikr/pkg/telemetry"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -18,6 +19,7 @@ import (
 // It implements the agg.BarHook interface.
 type KafkaProducer struct {
 	writers map[string]*kafka.Writer // series name -> writer
+	metrics *telemetry.Metrics       // nil-safe
 }
 
 // NewKafkaProducer creates a Kafka writer per series topic.
@@ -46,6 +48,16 @@ func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec) (*KafkaProduce
 		writers[spec.Series] = w
 	}
 	return &KafkaProducer{writers: writers}, nil
+}
+
+// NewKafkaProducerWithMetrics creates a Kafka producer with OTel instrumentation.
+func NewKafkaProducerWithMetrics(brokers []string, specs []*core.SeriesSpec, m *telemetry.Metrics) (*KafkaProducer, error) {
+	kp, err := NewKafkaProducer(brokers, specs)
+	if err != nil {
+		return nil, err
+	}
+	kp.metrics = m
+	return kp, nil
 }
 
 // OnBarFlushed converts a Bar to protobuf and publishes it to Kafka.
@@ -79,7 +91,14 @@ func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error 
 		Value: data,
 	}); err != nil {
 		log.Printf("kafka: write failed for series %s: %v", bar.Series, err)
+		if kp.metrics != nil {
+			kp.metrics.KafkaDropsTotal.Add(ctx, 1)
+		}
 		return nil
+	}
+
+	if kp.metrics != nil {
+		kp.metrics.KafkaWritesTotal.Add(ctx, 1)
 	}
 
 	return nil
