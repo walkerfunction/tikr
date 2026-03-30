@@ -75,7 +75,8 @@ type EngineConfig struct {
 
 // Engine wraps a Blob store and manages its lifecycle.
 type Engine struct {
-	blob Blob
+	blob   Blob
+	reaper *Reaper
 }
 
 // NewEngine opens the configured storage backend.
@@ -129,7 +130,18 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 
 	log.Printf("storage: opened %s at %s", backend, cfg.DataDir)
-	return &Engine{blob: blob}, nil
+
+	e := &Engine{blob: blob}
+
+	ttl := TTLConfig{TicksTTL: cfg.TicksTTL, RollupTTL: cfg.RollupTTL}
+	if cfg.TicksTTL > 0 || cfg.RollupTTL > 0 {
+		reaper := NewReaper(e, ttl, 10*time.Minute)
+		reaper.Start()
+		e.reaper = reaper
+		log.Printf("storage: reaper started (ticks TTL: %s, rollup TTL: %s, interval: 10m)", cfg.TicksTTL, cfg.RollupTTL)
+	}
+
+	return e, nil
 }
 
 // Blob returns the underlying Blob store.
@@ -139,6 +151,9 @@ func (e *Engine) Blob() Blob {
 
 // Close shuts down the engine cleanly.
 func (e *Engine) Close() error {
+	if e.reaper != nil {
+		e.reaper.Stop()
+	}
 	return e.blob.Close()
 }
 

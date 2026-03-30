@@ -16,19 +16,19 @@ Context file for AI coding agents (Claude, Copilot, Cursor, etc.) working on thi
 cmd/tikr/           -- main entry point
 pkg/
   core/             -- domain types: Tick, Bar, SeriesSpec, MetricDef
-  storage/          -- Pebble engine, reader, writer
+  storage/          -- Pebble engine, reader, writer, TTL (lazy filter + reaper)
   ingest/           -- gRPC ingest server, Batcher, Pipeline
-  agg/              -- RollupEngine (aggregation logic)
+  agg/              -- RollupEngine (aggregation logic), BarHook interface
   query/            -- gRPC query server (ticks + bars)
   pb/               -- generated protobuf/gRPC code (from proto/tikr.proto)
   config/           -- YAML config and spec loader
-  output/           -- Kafka bar output (planned)
-  telemetry/        -- OpenTelemetry + Prometheus metrics
+  output/           -- Kafka producer, OTLP bar encoding
+  telemetry/        -- OpenTelemetry metrics (OTel SDK)
 proto/              -- tikr.proto source
 config/
   default.yaml      -- server config
   specs/            -- series spec YAML files (market_ticks, asic_metrics, network_flows)
-docker/             -- Dockerfile, Dockerfile.dev, docker-compose.yml
+docker/             -- Dockerfile, docker-compose.yml (Tikr + Kafka KRaft)
 examples/python/    -- Python gRPC examples (ingest, query, fault detection)
 benchmarks/         -- Go benchmarks
 ```
@@ -43,6 +43,10 @@ benchmarks/         -- Go benchmarks
 | `RollupEngine` | `pkg/agg` | Maintains accumulators, flushes completed bars on window boundary |
 | `Pipeline` | `pkg/ingest` | Wires gRPC ingest to Batcher to storage + rollup |
 | `Batcher` | `pkg/ingest` | Groups incoming ticks, flushes to storage and RollupEngine |
+| `KafkaProducer` | `pkg/output` | Async Kafka writer, encodes bars as OTLP protobuf |
+| `Metrics` | `pkg/telemetry` | OTel instruments (counters, histograms) for pipeline observability |
+| `TTLConfig` | `pkg/storage` | Lazy read-time TTL filter config |
+| `Reaper` | `pkg/storage` | Background tombstone writer for disk reclamation |
 
 ## Data Flow
 
@@ -58,7 +62,7 @@ Batcher (groups by series, flushes batches)
 RollupEngine (in-memory accumulators per dimension combo)
     |
     ├──> Pebble write (prefix 0x02 = rolled-up bars)
-    └──> BarChan --> Kafka output (planned)
+    └──> BarHook --> KafkaProducer --> OTLP protobuf on Kafka topic
 ```
 
 ## Storage
@@ -66,10 +70,43 @@ RollupEngine (in-memory accumulators per dimension combo)
 - **Engine**: Pebble (CockroachDB's LSM store, pure Go)
 - **Key encoding**: big-endian, lexicographically ordered
 - **Prefix bytes**:
-  - `0x01` -- raw ticks: `[0x01][series_id][dim_hash][timestamp_ns]`
-  - `0x02` -- rollup bars: `[0x02][series_id][dim_hash][bucket_ts]`
+  - `0x01` -- raw ticks: `[0x01][series_id:2][dim_hash:8][timestamp_ns:8][seq:4]`
+  - `0x02` -- rollup bars: `[0x02][series_id:2][dim_hash:8][bucket_ts:8]`
   - `0x03` -- metadata: `[0x03][key_name]`
-- **TTL**: ticks 6h, bars 12h (configurable in default.yaml)
+- **Group registry**: Writer registers `(series_id, dim_hash)` pairs in meta prefix (`grp:` keys) so the reaper can enumerate groups without scanning data keys
+
+## TTL Enforcement
+
+Two-layer design:
+
+1. **Lazy read filter** -- `NewReaderWithTTL()` checks the timestamp in each key and skips expired entries before decoding values. Zero write-path cost.
+2. **Reaper** (every 10min) -- reads the group registry from meta, issues `DeleteRange` tombstones per `(series_id, dim_hash)` group from `ts=0` to `ts=cutoff`. Pebble's compaction discards tombstoned keys during SSTable merges. Cost is O(groups), not O(keys).
+
+Config: `storage.ticks.ttl` and `storage.rollup.ttl` in `config/default.yaml` (min 1h, max 24h).
+
+## Kafka Output
+
+- **Encoding**: OTLP protobuf (standard OpenTelemetry format)
+- **Delivery**: async fire-and-forget. If Kafka is down, bars are dropped + counter incremented
+- **Topic**: configured per series in spec YAML (`output.kafka.topic`)
+- **Key**: dimension values for Kafka partitioning
+- **Encoder**: `pkg/output/otlp.go` -- `BarToOTLP()` converts bars to OTLP `ResourceMetrics`
+
+## Observability
+
+OTel SDK instruments wired through the full pipeline:
+
+| Metric | Type | Where |
+|--------|------|-------|
+| `tikr.ingest.ticks_total` | Counter | Pipeline.Ingest() |
+| `tikr.ingest.batch_size` | Histogram | Server.IngestTicks() |
+| `tikr.agg.bars_flushed_total` | Counter | Pipeline.consumeBars() |
+| `tikr.output.kafka_writes_total` | Counter | KafkaProducer.OnBarFlushed() |
+| `tikr.output.kafka_drops_total` | Counter | KafkaProducer async Completion callback |
+| `tikr.query.requests_total` | Counter | QueryTicks/QueryBars (with "type" attr) |
+| `tikr.query.latency_ms` | Histogram | QueryTicks/QueryBars |
+
+Pre-allocated attribute sets used on hot paths to avoid per-call heap allocations.
 
 ## Proto
 
@@ -93,6 +130,7 @@ make lint       # golangci-lint
 make bench      # benchmarks
 make proto      # regenerate protobuf stubs
 make docker-up  # start tikr + kafka via docker compose
+make docker-clean  # stop + remove containers, volumes, images
 ```
 
 No local Go toolchain needed. The dev image (`docker/Dockerfile.dev`) has everything.
@@ -105,13 +143,16 @@ No local Go toolchain needed. The dev image (`docker/Dockerfile.dev`) has everyt
 | `google.golang.org/grpc v1.70.0` | gRPC server and client |
 | `google.golang.org/protobuf v1.36.11` | Protocol buffer runtime |
 | `gopkg.in/yaml.v3 v3.0.1` | YAML config and spec parsing |
+| `segmentio/kafka-go v0.4.50` | Kafka producer |
+| `go.opentelemetry.io/otel v1.32.0` | OTel metrics SDK |
+| `go.opentelemetry.io/proto/otlp v1.0.0` | OTLP protobuf types for bar encoding |
 
 ## Current State
 
-- **Phase 2 complete**: ingest + rollup + query all working end-to-end
-- **Kafka output**: not yet wired (output package exists but is a stub)
-- **Telemetry**: OpenTelemetry + Prometheus metrics scaffolded
-- **Python examples**: 3 examples (market ticks, network flows, ASIC fault detection)
+- **Phase 5 complete**: ingest, rollup, query, Kafka OTLP output, OTel instrumentation, TTL enforcement
+- **Docker**: multi-stage build (distroless), compose with Kafka KRaft
+- **CI**: GitHub Actions (lint, test, build, docker)
+- **Release**: GHCR Docker push on version tags
 
 ## Conventions
 
@@ -119,6 +160,7 @@ No local Go toolchain needed. The dev image (`docker/Dockerfile.dev`) has everyt
 - Timestamps are always nanoseconds since Unix epoch (`uint64`)
 - Dimensions are string-typed key-value pairs
 - Fields/metrics are `int64` or `uint64`
+- Branch workflow: never commit to master, always feature branch + PR
 
 ## Series Specs
 

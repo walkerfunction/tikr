@@ -43,6 +43,27 @@ python examples/python/01_ingest_ticks.py
 | ASIC hardware fault detection | `config/specs/asic_metrics.yaml` | device_id, asic_id, port_id |
 | Network flow telemetry | `config/specs/network_flows.yaml` | src_ip, dst_ip, protocol |
 
+## Data Retention
+
+Tikr is an edge node -- all local data is ephemeral with configurable TTL (1h--24h).
+
+**Two-layer TTL enforcement:**
+
+1. **Lazy read filter** -- on every query, the Reader checks the timestamp embedded in each key and skips expired entries before decoding the value. Zero write-path cost, immediate correctness.
+
+2. **Reaper** -- a background goroutine (every 10min) issues Pebble `DeleteRange` tombstones to reclaim disk. It reads a **group registry** from the meta prefix to enumerate `(series_id, dim_hash)` groups in O(groups), not O(keys). Pebble's compaction discards tombstoned keys during SSTable merges.
+
+```yaml
+# config/default.yaml
+storage:
+  ticks:
+    ttl: 6h         # min: 1h, max: 24h
+    max_size_gb: 50
+  rollup:
+    ttl: 12h        # min: 1h, max: 24h
+    max_size_gb: 5
+```
+
 ## Documentation
 
 - **[Detailed README](docs/README-detailed.md)** -- architecture, configuration, API reference

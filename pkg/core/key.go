@@ -8,14 +8,14 @@ import (
 	"strings"
 )
 
-// Key encoding for RocksDB. All multi-byte integers are big-endian
+// Key encoding for Pebble. All multi-byte integers are big-endian
 // so that bytewise comparison yields chronological ordering.
 //
 // Tick key:   [series_id:2][dim_hash:8][ts_ns:8][seq:4] = 22 bytes
 // Rollup key: [series_id:2][dim_hash:8][bucket_ts:8]    = 18 bytes
 // Meta key:   [prefix:1][payload:variable]
 
-// EncodeTickKey creates a RocksDB key for a raw tick.
+// EncodeTickKey creates a Pebble key for a raw tick.
 func EncodeTickKey(seriesID uint16, dimHash uint64, tsNs uint64, seq uint32) []byte {
 	key := make([]byte, 22)
 	binary.BigEndian.PutUint16(key[0:2], seriesID)
@@ -37,7 +37,7 @@ func DecodeTickKey(key []byte) (seriesID uint16, dimHash uint64, tsNs uint64, se
 	return
 }
 
-// EncodeRollupKey creates a RocksDB key for a rolled-up bar.
+// EncodeRollupKey creates a Pebble key for a rolled-up bar.
 func EncodeRollupKey(seriesID uint16, dimHash uint64, bucketTs uint64) []byte {
 	key := make([]byte, 18)
 	binary.BigEndian.PutUint16(key[0:2], seriesID)
