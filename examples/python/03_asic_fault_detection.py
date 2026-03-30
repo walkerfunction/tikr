@@ -31,7 +31,7 @@ DEVICES = [
     {"device_id": "spine-01.dc1", "asic_id": "memory-0", "port_id": "Ethernet1/1"},
     {"device_id": "spine-01.dc1", "asic_id": "memory-0", "port_id": "Ethernet1/2"},
     {"device_id": "spine-01.dc1", "asic_id": "memory-1", "port_id": "Ethernet2/1"},
-    {"device_id": "leaf-03.dc1",  "asic_id": "memory-0", "port_id": "Ethernet1/1"},
+    {"device_id": "leaf-03.dc1", "asic_id": "memory-0", "port_id": "Ethernet1/1"},
 ]
 
 NORMAL_TEMP_C = 65
@@ -43,7 +43,9 @@ FAULT_CRC_THRESHOLD = 10
 FAULT_VOLTAGE_MIN = 830
 
 
-def generate_asic_telemetry(num_seconds=5, samples_per_sec=200, inject_fault=True) -> list[Tick]:
+def generate_asic_telemetry(
+    num_seconds=5, samples_per_sec=200, inject_fault=True
+) -> list[Tick]:
     """Simulate OTel-scraped ASIC metrics with optional thermal fault injection."""
     base_time = int(time.time()) * 1_000_000_000
     ticks = []
@@ -51,7 +53,11 @@ def generate_asic_telemetry(num_seconds=5, samples_per_sec=200, inject_fault=Tru
     for sec in range(num_seconds):
         for device in DEVICES:
             for i in range(samples_per_sec):
-                ts = base_time + sec * 1_000_000_000 + i * (1_000_000_000 // samples_per_sec)
+                ts = (
+                    base_time
+                    + sec * 1_000_000_000
+                    + i * (1_000_000_000 // samples_per_sec)
+                )
 
                 temp_cdeg = NORMAL_TEMP_C * 100 + random.randint(-200, 200)
                 voltage_mv = NORMAL_VOLTAGE_MV + random.randint(-10, 10)
@@ -60,29 +66,36 @@ def generate_asic_telemetry(num_seconds=5, samples_per_sec=200, inject_fault=Tru
                 mem_util = NORMAL_MEM_UTIL + random.randint(-300, 300)
 
                 # Thermal fault on spine-01 Ethernet1/1 at second 3+
-                if (inject_fault and sec >= 3
-                        and device["device_id"] == "spine-01.dc1"
-                        and device["port_id"] == "Ethernet1/1"):
+                if (
+                    inject_fault
+                    and sec >= 3
+                    and device["device_id"] == "spine-01.dc1"
+                    and device["port_id"] == "Ethernet1/1"
+                ):
                     temp_cdeg = 9500 + random.randint(0, 500)
                     crc_errors = random.randint(5, 50)
                     pkt_drops = random.randint(10, 200)
                     voltage_mv = 820 + random.randint(-15, 5)
 
-                ticks.append(Tick(
-                    timestamp_ns=ts,
-                    dimensions=device,
-                    fields={
-                        "temperature": temp_cdeg,
-                        "voltage_mv": voltage_mv,
-                        "crc_errors_delta": crc_errors,
-                        "packet_drops": pkt_drops,
-                        "memory_util_bps": mem_util,
-                    },
-                    sequence=i,
-                ))
+                ticks.append(
+                    Tick(
+                        timestamp_ns=ts,
+                        dimensions=device,
+                        fields={
+                            "temperature": temp_cdeg,
+                            "voltage_mv": voltage_mv,
+                            "crc_errors_delta": crc_errors,
+                            "packet_drops": pkt_drops,
+                            "memory_util_bps": mem_util,
+                        },
+                        sequence=i,
+                    )
+                )
 
         status = "FAULT INJECTED" if inject_fault and sec >= 3 else "normal"
-        print(f"  second {sec + 1}/{num_seconds}: {len(DEVICES) * samples_per_sec} samples [{status}]")
+        print(
+            f"  second {sec + 1}/{num_seconds}: {len(DEVICES) * samples_per_sec} samples [{status}]"
+        )
 
     return ticks
 
@@ -141,13 +154,17 @@ with TikrClient(TIKR_ADDR) as client:
                 alerts.append(f"VOLTAGE_DROOP({voltage_min}mV)")
 
             status = " ".join(alerts) if alerts else "OK"
-            print(f"    t={bar.bucket_ts} temp=[{temp_min / 100:.1f}-{temp_max / 100:.1f}C] "
-                  f"voltage=[{voltage_min}-{m.get('voltage_max', 0)}mV] "
-                  f"crc={crc_total} drops={drops_total} "
-                  f"mem={mem_max / 100:.1f}% samples={bar.tick_count} -> {status}")
+            print(
+                f"    t={bar.bucket_ts} temp=[{temp_min / 100:.1f}-{temp_max / 100:.1f}C] "
+                f"voltage=[{voltage_min}-{m.get('voltage_max', 0)}mV] "
+                f"crc={crc_total} drops={drops_total} "
+                f"mem={mem_max / 100:.1f}% samples={bar.tick_count} -> {status}"
+            )
 
             if alerts:
-                faults_detected.append({"device": label, "bucket": bar.bucket_ts, "alerts": alerts})
+                faults_detected.append(
+                    {"device": label, "bucket": bar.bucket_ts, "alerts": alerts}
+                )
 
         print()
 

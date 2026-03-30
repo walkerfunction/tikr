@@ -27,20 +27,22 @@ def generate_flows(num_seconds=3, flows_per_sec=50) -> list[Tick]:
     for sec in range(num_seconds):
         for i in range(flows_per_sec):
             ts = base_time + sec * 1_000_000_000 + i * (1_000_000_000 // flows_per_sec)
-            ticks.append(Tick(
-                timestamp_ns=ts,
-                dimensions={
-                    "src_ip": random.choice(IPS),
-                    "dst_ip": random.choice(IPS),
-                    "protocol": random.choice(PROTOCOLS),
-                },
-                fields={
-                    "bytes": random.randint(64, 65535),
-                    "packets": random.randint(1, 100),
-                    "latency_us": random.randint(50, 5000),
-                },
-                sequence=i,
-            ))
+            ticks.append(
+                Tick(
+                    timestamp_ns=ts,
+                    dimensions={
+                        "src_ip": random.choice(IPS),
+                        "dst_ip": random.choice(IPS),
+                        "protocol": random.choice(PROTOCOLS),
+                    },
+                    fields={
+                        "bytes": random.randint(64, 65535),
+                        "packets": random.randint(1, 100),
+                        "latency_us": random.randint(50, 5000),
+                    },
+                    sequence=i,
+                )
+            )
     return ticks
 
 
@@ -67,11 +69,13 @@ with TikrClient(TIKR_ADDR) as client:
     print(f"  got {len(bars)} bars for 10.0.0.1 -> 10.0.0.2 TCP")
     for bar in bars:
         m = bar.metrics
-        print(f"    bucket={bar.bucket_ts} "
-              f"bytes={m.get('bytes_total', 0)} "
-              f"packets={m.get('packets_total', 0)} "
-              f"max_latency={m.get('max_latency_us', 0)}us "
-              f"flows={bar.tick_count}")
+        print(
+            f"    bucket={bar.bucket_ts} "
+            f"bytes={m.get('bytes_total', 0)} "
+            f"packets={m.get('packets_total', 0)} "
+            f"max_latency={m.get('max_latency_us', 0)}us "
+            f"flows={bar.tick_count}"
+        )
 
     print()
     print("Same Tikr engine, completely different data. No code changes needed -")
