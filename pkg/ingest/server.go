@@ -4,9 +4,9 @@ import (
 	"io"
 	"log"
 
-	"github.com/tikr-dev/tikr/pkg/core"
-	pb "github.com/tikr-dev/tikr/pkg/pb"
-	"github.com/tikr-dev/tikr/pkg/telemetry"
+	"github.com/walkerfunction/tikr/pkg/core"
+	pb "github.com/walkerfunction/tikr/pkg/pb"
+	"github.com/walkerfunction/tikr/pkg/telemetry"
 )
 
 // Server implements the gRPC Tikr ingest service.

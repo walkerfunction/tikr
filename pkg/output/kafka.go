@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	"github.com/tikr-dev/tikr/pkg/core"
-	"github.com/tikr-dev/tikr/pkg/pb"
+	"github.com/walkerfunction/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/pb"
 	"google.golang.org/protobuf/proto"
 )
 

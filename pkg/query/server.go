@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tikr-dev/tikr/pkg/core"
-	"github.com/tikr-dev/tikr/pkg/ingest"
-	pb "github.com/tikr-dev/tikr/pkg/pb"
-	"github.com/tikr-dev/tikr/pkg/storage"
+	"github.com/walkerfunction/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/ingest"
+	pb "github.com/walkerfunction/tikr/pkg/pb"
+	"github.com/walkerfunction/tikr/pkg/storage"
 )
 
 // Server implements the gRPC Tikr query service.

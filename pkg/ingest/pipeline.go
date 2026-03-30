@@ -5,9 +5,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/tikr-dev/tikr/pkg/agg"
-	"github.com/tikr-dev/tikr/pkg/core"
-	"github.com/tikr-dev/tikr/pkg/storage"
+	"github.com/walkerfunction/tikr/pkg/agg"
+	"github.com/walkerfunction/tikr/pkg/core"
+	"github.com/walkerfunction/tikr/pkg/storage"
 )
 
 // SeriesPipeline holds the processing components for a single series.

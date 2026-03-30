@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
-	pb "github.com/tikr-dev/tikr/pkg/pb"
+	pb "github.com/walkerfunction/tikr/pkg/pb"
 )
 
 // Package-level state shared across all tests via TestMain.
