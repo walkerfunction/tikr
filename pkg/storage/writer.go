@@ -65,7 +65,7 @@ func (w *Writer) WriteBar(seriesID uint16, bar *core.Bar) error {
 		return fmt.Errorf("marshaling bar: %w", err)
 	}
 
-	if err := w.engine.db.Set(key, val, pebble.NoSync); err != nil {
+	if err := w.engine.db.Set(key, val, pebble.Sync); err != nil {
 		return fmt.Errorf("writing bar: %w", err)
 	}
 
@@ -87,12 +87,12 @@ func (w *Writer) WriteBars(seriesID uint16, bars []*core.Bar) error {
 			return fmt.Errorf("marshaling bar: %w", err)
 		}
 
-		if err := batch.Set(key, val, pebble.NoSync); err != nil {
+		if err := batch.Set(key, val, pebble.Sync); err != nil {
 			return fmt.Errorf("batch set bar: %w", err)
 		}
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("committing bar batch: %w", err)
 	}
 

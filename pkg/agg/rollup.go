@@ -2,7 +2,9 @@ package agg
 
 import (
 	"context"
+	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/walkerfunction/tikr/pkg/core"
@@ -11,7 +13,8 @@ import (
 // BucketState holds the in-memory aggregation state for one dimension key in one time bucket.
 type BucketState struct {
 	BucketTs       uint64
-	Aggregators    map[string]AggFunc // metric_name → running aggregator
+	Dimensions     map[string]string          // stored so flush-by-timer/shutdown has dims
+	Aggregators    map[string]AggFunc         // metric_name → running aggregator
 	FirstTimestamp uint64
 	LastTimestamp   uint64
 	TickCount      uint64
@@ -29,8 +32,9 @@ type RollupEngine struct {
 	buckets map[uint64]*BucketState // dimHash → current bucket state
 
 	// Output channels
-	barCh chan *core.Bar
-	hook  BarHook
+	barCh       chan *core.Bar
+	hook        BarHook
+	barsDropped atomic.Int64 // bars dropped due to full channel
 }
 
 // NewRollupEngine creates a rollup engine for a given series spec.
@@ -71,14 +75,15 @@ func (r *RollupEngine) ProcessTick(tick *core.Tick) {
 
 	if exists && state.BucketTs != bucketTs {
 		// Bucket boundary crossed — flush the old bucket
-		r.flushBucketLocked(dimHash, state, tick.Dimensions)
+		r.flushBucketLocked(dimHash, state)
 		exists = false
 	}
 
 	if !exists {
-		// Initialize new bucket
+		// Initialize new bucket — store dimensions so timer/shutdown flushes have them
 		state = &BucketState{
 			BucketTs:    bucketTs,
+			Dimensions:  tick.Dimensions,
 			Aggregators: make(map[string]AggFunc),
 		}
 		for _, m := range r.spec.Metrics {
@@ -118,11 +123,11 @@ func (r *RollupEngine) ProcessTick(tick *core.Tick) {
 
 // flushBucketLocked converts a bucket state into a Bar and sends it to the output channel.
 // Must be called with r.mu held.
-func (r *RollupEngine) flushBucketLocked(dimHash uint64, state *BucketState, dims map[string]string) {
+func (r *RollupEngine) flushBucketLocked(dimHash uint64, state *BucketState) {
 	bar := &core.Bar{
 		Series:         r.spec.Series,
 		BucketTs:       state.BucketTs,
-		Dimensions:     dims,
+		Dimensions:     state.Dimensions,
 		Metrics:        make(map[string]int64, len(state.Aggregators)),
 		FirstTimestamp: state.FirstTimestamp,
 		LastTimestamp:   state.LastTimestamp,
@@ -133,16 +138,23 @@ func (r *RollupEngine) flushBucketLocked(dimHash uint64, state *BucketState, dim
 		bar.Metrics[name] = agg.Result()
 	}
 
-	// Non-blocking send — drop if channel is full (backpressure)
+	// Non-blocking send — log and count drops if channel is full
 	select {
 	case r.barCh <- bar:
 	default:
+		dropped := r.barsDropped.Add(1)
+		log.Printf("rollup: bar dropped for %s (channel full, total dropped: %d)", r.spec.Series, dropped)
 	}
 
 	// Call hook (error intentionally ignored — hooks must not block rollup)
 	_ = r.hook.OnBarFlushed(context.Background(), bar)
 
 	delete(r.buckets, dimHash)
+}
+
+// BarsDropped returns the total number of bars dropped due to full channel.
+func (r *RollupEngine) BarsDropped() int64 {
+	return r.barsDropped.Load()
 }
 
 // FlushStale force-flushes any bucket that hasn't received a tick in `maxAge`.
@@ -156,7 +168,7 @@ func (r *RollupEngine) FlushStale(maxAge time.Duration) {
 
 	for dimHash, state := range r.buckets {
 		if state.LastTimestamp < threshold {
-			r.flushBucketLocked(dimHash, state, nil) // dims not available, will be nil
+			r.flushBucketLocked(dimHash, state)
 		}
 	}
 }
@@ -167,7 +179,7 @@ func (r *RollupEngine) FlushAll() {
 	defer r.mu.Unlock()
 
 	for dimHash, state := range r.buckets {
-		r.flushBucketLocked(dimHash, state, nil)
+		r.flushBucketLocked(dimHash, state)
 	}
 }
 
