@@ -5,9 +5,9 @@
 **On-prem edge rollup engine for high-frequency time series.** Tikr ingests millions of data points per second via gRPC, rolls them into 1-second bars on the edge, and forwards compressed summaries to Kafka for cloud storage.
 
 ```
-[Data Source] ──gRPC──▶ [Tikr on-prem] ──1s bars──▶ [Kafka] ──▶ [Cloud TSDB]
-   100k pts/s             Pebble store               10x less      long-term
-                          rollup engine               bandwidth     trending
+[Data Source] ──gRPC──▶ [Tikr on-prem] ──OTLP bars──▶ [Kafka] ──▶ [Any OTel backend]
+   100k pts/s             Pebble store                 standard      Grafana, Datadog,
+                          rollup engine                format        ClickHouse, etc.
 ```
 
 ## Quick Start
@@ -24,13 +24,14 @@ python examples/python/01_ingest_ticks.py
 ## Features
 
 - **Schema-agnostic YAML specs** -- define any time series with a YAML file, no code changes
+- **OTLP-native output** -- bars are encoded as standard OTLP protobuf on Kafka, consumable by any OTel-compatible backend
 - **gRPC streaming ingest** -- client-streaming RPC handles bursty, high-throughput writes
 - **Pebble storage** -- embedded LSM engine (pure Go, no CGO dependency for builds)
 - **Sub-second rollups** -- first, last, min, max, sum, count aggregations into 1s bars
+- **OTel instrumentation** -- ticks in, bars out, query latency, Kafka drops all tracked via OpenTelemetry
 - **Multi-dimensional** -- roll up per any combination of dimension keys
 - **Pre-wired ML hook** -- query bars locally for real-time anomaly detection at the edge
 - **Pure Go** -- single static binary, minimal operational overhead
-- **Docker-first** -- all builds, tests, and deployments run in containers
 
 ## Use Cases
 

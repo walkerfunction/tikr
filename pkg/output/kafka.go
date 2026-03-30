@@ -10,20 +10,26 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/walkerfunction/tikr/pkg/core"
-	"github.com/walkerfunction/tikr/pkg/pb"
-	"google.golang.org/protobuf/proto"
+	"github.com/walkerfunction/tikr/pkg/telemetry"
 )
 
 // KafkaProducer pushes rolled-up bars to Kafka topics.
 // It implements the agg.BarHook interface.
 type KafkaProducer struct {
 	writers map[string]*kafka.Writer // series name -> writer
+	metrics *telemetry.Metrics       // nil-safe
 }
 
 // NewKafkaProducer creates a Kafka writer per series topic.
 // Each writer is configured for async, fire-and-forget delivery.
-func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec) (*KafkaProducer, error) {
-	writers := make(map[string]*kafka.Writer, len(specs))
+// Pass nil for metrics if OTel instrumentation is not needed.
+func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec, m *telemetry.Metrics) (*KafkaProducer, error) {
+	// Create the struct first so the Completion closure can reference kp.metrics.
+	kp := &KafkaProducer{
+		writers: make(map[string]*kafka.Writer, len(specs)),
+		metrics: m,
+	}
+
 	for _, spec := range specs {
 		topic := spec.Output.Kafka.Topic
 		if topic == "" {
@@ -40,15 +46,18 @@ func NewKafkaProducer(brokers []string, specs []*core.SeriesSpec) (*KafkaProduce
 			Completion: func(msgs []kafka.Message, err error) {
 				if err != nil {
 					log.Printf("kafka: async write failed for %d message(s): %v", len(msgs), err)
+					if kp.metrics != nil {
+						kp.metrics.KafkaDropsTotal.Add(context.Background(), int64(len(msgs)))
+					}
 				}
 			},
 		}
-		writers[spec.Series] = w
+		kp.writers[spec.Series] = w
 	}
-	return &KafkaProducer{writers: writers}, nil
+	return kp, nil
 }
 
-// OnBarFlushed converts a Bar to protobuf and publishes it to Kafka.
+// OnBarFlushed encodes a Bar as OTLP protobuf and publishes it to Kafka.
 // On any error the bar is dropped and the error is logged (fire-and-forget).
 func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error {
 	w, ok := kp.writers[bar.Series]
@@ -56,19 +65,9 @@ func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error 
 		return nil // no Kafka output configured for this series
 	}
 
-	barPB := &pb.BarData{
-		Series:         bar.Series,
-		BucketTs:       bar.BucketTs,
-		Dimensions:     bar.Dimensions,
-		Metrics:        bar.Metrics,
-		FirstTimestamp: bar.FirstTimestamp,
-		LastTimestamp:   bar.LastTimestamp,
-		TickCount:      bar.TickCount,
-	}
-
-	data, err := proto.Marshal(barPB)
+	data, err := BarToOTLP(bar)
 	if err != nil {
-		log.Printf("kafka: proto marshal failed for series %s: %v", bar.Series, err)
+		log.Printf("kafka: OTLP marshal failed for series %s: %v", bar.Series, err)
 		return nil
 	}
 
@@ -79,7 +78,14 @@ func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error 
 		Value: data,
 	}); err != nil {
 		log.Printf("kafka: write failed for series %s: %v", bar.Series, err)
+		if kp.metrics != nil {
+			kp.metrics.KafkaDropsTotal.Add(ctx, 1)
+		}
 		return nil
+	}
+
+	if kp.metrics != nil {
+		kp.metrics.KafkaWritesTotal.Add(ctx, 1)
 	}
 
 	return nil
@@ -97,8 +103,8 @@ func (kp *KafkaProducer) Close() error {
 	return errors.Join(errs...)
 }
 
-// dimensionKey builds a deterministic partition key by sorting dimension
-// keys and joining their values with "|".
+// dimensionKey builds a deterministic partition key from sorted dimension
+// key=value pairs joined by "|" (e.g., "region=us-east|symbol=AAPL").
 func dimensionKey(dims map[string]string) string {
 	if len(dims) == 0 {
 		return ""
@@ -109,9 +115,9 @@ func dimensionKey(dims map[string]string) string {
 	}
 	sort.Strings(keys)
 
-	vals := make([]string, len(keys))
+	parts := make([]string, len(keys))
 	for i, k := range keys {
-		vals[i] = dims[k]
+		parts[i] = k + "=" + dims[k]
 	}
-	return strings.Join(vals, "|")
+	return strings.Join(parts, "|")
 }

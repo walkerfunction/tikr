@@ -38,5 +38,5 @@ granularity:
 output:
   kafka:
     topic: tikr-bars-market-1s
-    encoding: proto
+    encoding: otlp
     on_failure: drop
