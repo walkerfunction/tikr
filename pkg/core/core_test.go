@@ -209,8 +209,12 @@ metrics:
 granularity:
   rollup: 1s
 `
-	os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(spec), 0644)
-	os.WriteFile(filepath.Join(dir, "b.yaml"), []byte(spec), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(spec), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.yaml"), []byte(spec), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := LoadSpecs(dir); err == nil {
 		t.Fatal("expected error for duplicate series name")

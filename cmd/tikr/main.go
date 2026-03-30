@@ -138,7 +138,7 @@ func main() {
 	if kafkaProducer != nil {
 		kafkaProducer.Close()
 	}
-	metrics.Shutdown(context.Background())
+	_ = metrics.Shutdown(context.Background())
 	engine.Close()
 	time.Sleep(100 * time.Millisecond)
 	fmt.Println("bye")

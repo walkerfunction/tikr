@@ -83,11 +83,8 @@ func TestMain(m *testing.M) {
 // dial creates a gRPC connection to the given address.
 func dial(t *testing.T, addr string) *grpc.ClientConn {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := grpc.DialContext(ctx, addr,
+	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		t.Fatalf("dial %s: %v", addr, err)
@@ -706,7 +703,7 @@ func TestKafkaIntegration(t *testing.T) {
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort("9092/tcp"),
 			wait.ForLog("Kafka Server started"),
-		).WithStartupTimeout(90 * time.Second),
+		).WithDeadline(90 * time.Second),
 	}
 
 	kafkaC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
