@@ -5,8 +5,6 @@
 python-sdk
 examples
 docs
-benchmarks
-tests
 *.md
 CODE_REVIEW*.md
 TODO.md
