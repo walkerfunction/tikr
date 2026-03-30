@@ -54,5 +54,5 @@ granularity:
 output:
   kafka:
     topic: tikr-bars-asic-1s
-    encoding: proto
+    encoding: otlp
     on_failure: drop

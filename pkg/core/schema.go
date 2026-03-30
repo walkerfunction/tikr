@@ -58,7 +58,7 @@ type GranularitySpec struct {
 // KafkaOutputSpec defines Kafka output configuration for a series.
 type KafkaOutputSpec struct {
 	Topic     string `yaml:"topic"`
-	Encoding  string `yaml:"encoding"`   // "proto" | "json"
+	Encoding  string `yaml:"encoding"`   // "otlp" (default) | "json"
 	OnFailure string `yaml:"on_failure"` // "drop"
 }
 

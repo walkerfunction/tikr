@@ -15,6 +15,10 @@ import (
 // Set from main via ldflags to keep it in sync with the binary version.
 var Version = "dev"
 
+// ServiceName is the OTLP resource service.name attribute.
+// Set from main to match the configured telemetry service name.
+var ServiceName = "tikr"
+
 // BarToOTLP converts a rolled-up bar into OTLP protobuf bytes.
 //
 // Each metric in the bar (open, high, low, close, volume, etc.) becomes a
@@ -73,7 +77,7 @@ func BarToOTLP(bar *core.Bar) ([]byte, error) {
 	rm := &metricspb.ResourceMetrics{
 		Resource: &resourcepb.Resource{
 			Attributes: []*commonpb.KeyValue{
-				stringKV("service.name", "tikr"),
+				stringKV("service.name", ServiceName),
 				stringKV("tikr.series", bar.Series),
 			},
 		},

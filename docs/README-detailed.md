@@ -192,6 +192,7 @@ The main configuration file is `config/default.yaml`:
 | `kafka` | `brokers` | `["kafka:9092"]` | Kafka broker addresses |
 | `telemetry` | `enabled` | `true` | Enable OpenTelemetry |
 | `telemetry` | `service_name` | `tikr` | OTel service name |
+| `telemetry.prometheus` | `port` | `9878` | Prometheus metrics port |
 | | `specs_dir` | `/etc/tikr/specs` | Directory for YAML spec files |
 
 ## Docker Deployment

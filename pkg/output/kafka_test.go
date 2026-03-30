@@ -15,7 +15,7 @@ func TestKafkaProducer_DropSemantics(t *testing.T) {
 			Output: core.OutputSpec{
 				Kafka: core.KafkaOutputSpec{
 					Topic:     "test-topic",
-					Encoding:  "proto",
+					Encoding:  "otlp",
 					OnFailure: "drop",
 				},
 			},

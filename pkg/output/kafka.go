@@ -103,8 +103,8 @@ func (kp *KafkaProducer) Close() error {
 	return errors.Join(errs...)
 }
 
-// dimensionKey builds a deterministic partition key by sorting dimension
-// keys and joining their values with "|".
+// dimensionKey builds a deterministic partition key from sorted dimension
+// key=value pairs joined by "|" (e.g., "region=us-east|symbol=AAPL").
 func dimensionKey(dims map[string]string) string {
 	if len(dims) == 0 {
 		return ""

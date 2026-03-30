@@ -131,7 +131,7 @@ func registerInstruments(provider *sdkmetric.MeterProvider, serviceName string) 
 }
 
 // Shutdown flushes pending metrics and releases resources.
-// It is safe to call with a nil provider, but NOT idempotent: the underlying
+// It is safe to call when m.provider is nil, but NOT idempotent: the underlying
 // OTel MeterProvider.Shutdown returns an error on the second call. Callers
 // should ensure Shutdown is called exactly once.
 func (m *Metrics) Shutdown(ctx context.Context) error {

@@ -52,6 +52,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("telemetry: %v", err)
 	}
+	output.ServiceName = cfg.Telemetry.ServiceName
 
 	fmt.Printf("Tikr %s\n", version)
 	for _, s := range specs {
