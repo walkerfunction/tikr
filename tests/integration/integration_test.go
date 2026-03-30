@@ -715,8 +715,16 @@ func TestKafkaIntegration(t *testing.T) {
 	}
 	defer func() { _ = kafkaC.Terminate(ctx) }()
 
-	// EXTERNAL listener is bound on fixed port 29092 -> host 29092 (matching advertised).
-	kafkaHostAddr := "172.17.0.1:29092"
+	// Obtain the host-accessible Kafka address dynamically instead of hardcoding the Docker bridge IP.
+	kafkaHost, err := kafkaC.Host(ctx)
+	if err != nil {
+		t.Fatalf("get kafka host: %v", err)
+	}
+	kafkaMappedPort, err := kafkaC.MappedPort(ctx, "29092")
+	if err != nil {
+		t.Fatalf("get kafka mapped port: %v", err)
+	}
+	kafkaHostAddr := fmt.Sprintf("%s:%s", kafkaHost, kafkaMappedPort.Port())
 	t.Logf("kafka accessible at %s (EXTERNAL listener)", kafkaHostAddr)
 
 	// Pre-create the Kafka topic via EXTERNAL listener to avoid "Unknown Topic" on first produce.

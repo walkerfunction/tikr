@@ -149,7 +149,8 @@ func TestPipeline_IngestAndRollup(t *testing.T) {
 
 	// Verify ticks were written to storage
 	dimHash := core.DimensionHash(dims)
-	ticks, err := reader.ReadTicks(1, dimHash, 0, 3*baseNs)
+	seriesID := pipeline.SeriesIDs()["test"]
+	ticks, err := reader.ReadTicks(seriesID, dimHash, 0, 3*baseNs, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

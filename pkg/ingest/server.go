@@ -43,7 +43,7 @@ func (s *Server) IngestTicks(stream pb.Tikr_IngestTicksServer) error {
 
 		seriesName := req.Series
 
-		batchSize := len(req.Ticks)
+		var batchIngested int64
 		for _, t := range req.Ticks {
 			tick := core.Tick{
 				TimestampNs: t.TimestampNs,
@@ -58,11 +58,12 @@ func (s *Server) IngestTicks(stream pb.Tikr_IngestTicksServer) error {
 				continue
 			}
 			totalTicks++
+			batchIngested++
 		}
 
 		if s.metrics != nil {
-			s.metrics.TicksTotal.Add(stream.Context(), int64(batchSize))
-			s.metrics.BatchSize.Record(stream.Context(), float64(batchSize))
+			s.metrics.TicksTotal.Add(stream.Context(), batchIngested)
+			s.metrics.BatchSize.Record(stream.Context(), float64(batchIngested))
 		}
 	}
 }

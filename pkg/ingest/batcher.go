@@ -57,6 +57,9 @@ func (b *Batcher) Add(tick core.Tick) {
 		b.timer = time.AfterFunc(b.cfg.MaxLatency, func() {
 			b.mu.Lock()
 			defer b.mu.Unlock()
+			if b.closed {
+				return
+			}
 			b.flushLocked()
 		})
 	}
@@ -68,6 +71,7 @@ func (b *Batcher) Add(tick core.Tick) {
 }
 
 // flushLocked flushes the current batch. Must be called with b.mu held.
+// Releases the mutex during flushFn to avoid stalling producers, then re-acquires it.
 func (b *Batcher) flushLocked() {
 	if len(b.buf) == 0 {
 		return
@@ -81,9 +85,9 @@ func (b *Batcher) flushLocked() {
 	batch := b.buf
 	b.buf = make([]core.Tick, 0, b.cfg.MaxSize)
 
-	// Call flush function outside the critical path? No — keep it simple.
-	// The flushFn should be fast (just enqueue to a channel).
+	b.mu.Unlock()
 	b.flushFn(batch)
+	b.mu.Lock()
 }
 
 // Flush forces a flush of the current batch.
@@ -94,9 +98,11 @@ func (b *Batcher) Flush() {
 }
 
 // Close flushes remaining ticks and marks the batcher as closed.
+// Sets closed before flushing so no new ticks are accepted during
+// the unlock window inside flushLocked.
 func (b *Batcher) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.flushLocked()
 	b.closed = true
+	b.flushLocked()
 }

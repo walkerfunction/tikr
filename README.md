@@ -16,8 +16,8 @@
 # Start Tikr + Kafka
 docker compose -f docker/docker-compose.yml up -d
 
-# Run the Python example (ingests market ticks, queries rolled-up bars)
-pip install grpcio grpcio-tools protobuf
+# Install the Python SDK and run the example
+pip install -e python-sdk/
 python examples/python/01_ingest_ticks.py
 ```
 
@@ -51,7 +51,7 @@ python examples/python/01_ingest_ticks.py
 |------|----------|---------|
 | 9876 | gRPC | Ingest + Query API |
 | 9877 | HTTP | Health / debug |
-| 9878 | HTTP | Prometheus metrics |
+| 9878 | HTTP | OTel metrics |
 
 ## License
 

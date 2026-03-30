@@ -19,7 +19,8 @@ func NewReader(engine *Engine) *Reader {
 }
 
 // ReadTicks scans ticks for a given series+dimension in a time range.
-func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint64) ([]core.Tick, error) {
+// If limit > 0, iteration stops after that many results.
+func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint64, limit uint32) ([]core.Tick, error) {
 	startRaw, endRaw := core.TickKeyRange(seriesID, dimHash, startNs, endNs)
 	startKey := PrefixedKey(PrefixTicks, startRaw)
 	endKey := PrefixedKey(PrefixTicks, endRaw)
@@ -36,6 +37,10 @@ func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint6
 	var ticks []core.Tick
 
 	for iter.First(); iter.Valid(); iter.Next() {
+		if limit > 0 && uint32(len(ticks)) >= limit {
+			break
+		}
+
 		// Strip the prefix byte before decoding
 		rawKey := iter.Key()[1:]
 		_, _, tsNs, seq, err := core.DecodeTickKey(rawKey)
