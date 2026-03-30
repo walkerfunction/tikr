@@ -3,12 +3,15 @@ package query
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/walkerfunction/tikr/pkg/core"
 	"github.com/walkerfunction/tikr/pkg/ingest"
 	pb "github.com/walkerfunction/tikr/pkg/pb"
 	"github.com/walkerfunction/tikr/pkg/storage"
 )
+
+const maxQueryRangeNs = 24 * uint64(time.Hour)
 
 // Server implements the gRPC Tikr query service.
 type Server struct {
@@ -27,8 +30,23 @@ func NewServer(reader *storage.Reader, pipeline *ingest.Pipeline, specs []*core.
 	}
 }
 
+// validateTimeRange checks that the requested time range is valid and bounded.
+func validateTimeRange(startNs, endNs uint64) error {
+	if endNs <= startNs {
+		return fmt.Errorf("invalid time range: end must be after start")
+	}
+	if endNs-startNs > maxQueryRangeNs {
+		return fmt.Errorf("time range too large: max 24h")
+	}
+	return nil
+}
+
 // QueryTicks returns raw ticks for a series+dimension in a time range.
 func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) error {
+	if err := validateTimeRange(req.StartNs, req.EndNs); err != nil {
+		return err
+	}
+
 	sp, ok := s.pipeline.GetSeriesPipeline(req.Series)
 	if !ok {
 		return fmt.Errorf("unknown series: %s", req.Series)
@@ -56,6 +74,10 @@ func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) 
 
 // QueryBars returns rolled-up bars for a series+dimension in a time range.
 func (s *Server) QueryBars(req *pb.BarQuery, stream pb.Tikr_QueryBarsServer) error {
+	if err := validateTimeRange(req.StartNs, req.EndNs); err != nil {
+		return err
+	}
+
 	sp, ok := s.pipeline.GetSeriesPipeline(req.Series)
 	if !ok {
 		return fmt.Errorf("unknown series: %s", req.Series)
@@ -106,12 +128,15 @@ func (s *Server) ListSeries(_ context.Context, _ *pb.Empty) (*pb.SeriesList, err
 	return &pb.SeriesList{Series: list}, nil
 }
 
-// Version is set at build time via ldflags.
+// Version is set by main.init() from the ldflags-overridable main.version.
 var Version = "dev"
 
 // GetInfo returns server information.
-func (s *Server) GetInfo(_ context.Context, _ *pb.Empty) (*pb.ServerInfo, error) {
-	seriesList, _ := s.ListSeries(context.Background(), nil)
+func (s *Server) GetInfo(ctx context.Context, req *pb.Empty) (*pb.ServerInfo, error) {
+	seriesList, err := s.ListSeries(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("listing series: %w", err)
+	}
 	return &pb.ServerInfo{
 		Version: Version,
 		Series:  seriesList.Series,

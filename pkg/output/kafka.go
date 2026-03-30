@@ -2,6 +2,7 @@ package output
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sort"
 	"strings"
@@ -86,16 +87,14 @@ func (kp *KafkaProducer) OnBarFlushed(ctx context.Context, bar *core.Bar) error 
 
 // Close shuts down all Kafka writers.
 func (kp *KafkaProducer) Close() error {
-	var firstErr error
+	var errs []error
 	for name, w := range kp.writers {
 		if err := w.Close(); err != nil {
 			log.Printf("kafka: error closing writer for series %s: %v", name, err)
-			if firstErr == nil {
-				firstErr = err
-			}
+			errs = append(errs, err)
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }
 
 // dimensionKey builds a deterministic partition key by sorting dimension

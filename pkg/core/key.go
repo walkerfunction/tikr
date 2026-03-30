@@ -69,9 +69,9 @@ func DimensionHash(dims map[string]string) uint64 {
 	h := fnv.New64a()
 	for _, k := range keys {
 		h.Write([]byte(k))
-		h.Write([]byte("="))
+		h.Write([]byte{0x00})
 		h.Write([]byte(dims[k]))
-		h.Write([]byte("\x00"))
+		h.Write([]byte{0x00})
 	}
 	return h.Sum64()
 }
@@ -96,8 +96,19 @@ func TickKeyRange(seriesID uint16, dimHash uint64, startNs, endNs uint64) ([]byt
 }
 
 // RollupKeyRange returns start/end keys for range scanning rollups.
+// Implemented independently from TickKeyRange so the two can diverge safely.
 func RollupKeyRange(seriesID uint16, dimHash uint64, startTs, endTs uint64) ([]byte, []byte) {
-	return TickKeyRange(seriesID, dimHash, startTs, endTs) // same prefix format
+	start := make([]byte, 18)
+	binary.BigEndian.PutUint16(start[0:2], seriesID)
+	binary.BigEndian.PutUint64(start[2:10], dimHash)
+	binary.BigEndian.PutUint64(start[10:18], startTs)
+
+	end := make([]byte, 18)
+	binary.BigEndian.PutUint16(end[0:2], seriesID)
+	binary.BigEndian.PutUint64(end[2:10], dimHash)
+	binary.BigEndian.PutUint64(end[10:18], endTs)
+
+	return start, end
 }
 
 // DimensionString returns a canonical string representation of dimensions for display.

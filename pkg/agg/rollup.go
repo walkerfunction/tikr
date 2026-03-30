@@ -80,10 +80,15 @@ func (r *RollupEngine) ProcessTick(tick *core.Tick) {
 	}
 
 	if !exists {
-		// Initialize new bucket — store dimensions so timer/shutdown flushes have them
+		// Initialize new bucket — copy dimensions so mutations to the source map
+		// (e.g., protobuf struct reuse, buffer pooling) cannot corrupt stored state.
+		dimsCopy := make(map[string]string, len(tick.Dimensions))
+		for k, v := range tick.Dimensions {
+			dimsCopy[k] = v
+		}
 		state = &BucketState{
 			BucketTs:    bucketTs,
-			Dimensions:  tick.Dimensions,
+			Dimensions:  dimsCopy,
 			Aggregators: make(map[string]AggFunc),
 		}
 		for _, m := range r.spec.Metrics {
@@ -146,10 +151,12 @@ func (r *RollupEngine) flushBucketLocked(dimHash uint64, state *BucketState) {
 		log.Printf("rollup: bar dropped for %s (channel full, total dropped: %d)", r.spec.Series, dropped)
 	}
 
-	// Call hook (error intentionally ignored — hooks must not block rollup)
-	_ = r.hook.OnBarFlushed(context.Background(), bar)
-
 	delete(r.buckets, dimHash)
+
+	// Call hook outside mutex to avoid blocking the rollup engine under backpressure
+	r.mu.Unlock()
+	_ = r.hook.OnBarFlushed(context.Background(), bar)
+	r.mu.Lock()
 }
 
 // BarsDropped returns the total number of bars dropped due to full channel.
@@ -160,14 +167,25 @@ func (r *RollupEngine) BarsDropped() int64 {
 // FlushStale force-flushes any bucket that hasn't received a tick in `maxAge`.
 // Called periodically by a safety timer.
 func (r *RollupEngine) FlushStale(maxAge time.Duration) {
-	now := uint64(time.Now().UnixNano())
-	threshold := now - uint64(maxAge/time.Nanosecond)
+	nowNs := time.Now().UnixNano()
+	thresholdNs := nowNs - maxAge.Nanoseconds()
+	if thresholdNs < 0 {
+		return // nothing is stale yet
+	}
+	threshold := uint64(thresholdNs)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Collect stale keys first since flushBucketLocked releases and re-acquires the mutex
+	var staleKeys []uint64
 	for dimHash, state := range r.buckets {
 		if state.LastTimestamp < threshold {
+			staleKeys = append(staleKeys, dimHash)
+		}
+	}
+	for _, dimHash := range staleKeys {
+		if state, ok := r.buckets[dimHash]; ok {
 			r.flushBucketLocked(dimHash, state)
 		}
 	}
@@ -178,8 +196,15 @@ func (r *RollupEngine) FlushAll() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for dimHash, state := range r.buckets {
-		r.flushBucketLocked(dimHash, state)
+	// Collect keys first since flushBucketLocked releases and re-acquires the mutex
+	keys := make([]uint64, 0, len(r.buckets))
+	for dimHash := range r.buckets {
+		keys = append(keys, dimHash)
+	}
+	for _, dimHash := range keys {
+		if state, ok := r.buckets[dimHash]; ok {
+			r.flushBucketLocked(dimHash, state)
+		}
 	}
 }
 

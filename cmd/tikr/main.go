@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"google.golang.org/grpc"
 
@@ -152,8 +151,9 @@ func main() {
 		kafkaProducer.Close()
 	}
 	_ = metrics.Shutdown(context.Background())
-	engine.Close()
-	time.Sleep(100 * time.Millisecond)
+	if err := engine.Close(); err != nil {
+		log.Printf("engine close: %v", err)
+	}
 	fmt.Println("bye")
 }
 

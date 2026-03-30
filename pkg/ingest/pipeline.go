@@ -30,11 +30,18 @@ type Pipeline struct {
 
 // PipelineConfig holds the configuration for creating a pipeline.
 type PipelineConfig struct {
-	Specs       []*core.SeriesSpec
-	Writer      *storage.Writer
-	Hook        agg.BarHook
-	BatcherCfg  BatcherConfig
-	OnBarFlushed func(*core.Bar) // optional callback for each flushed bar
+	Specs      []*core.SeriesSpec
+	Writer     *storage.Writer
+	BatcherCfg BatcherConfig
+
+	// Hook is the primary bar side-effect handler (e.g., Kafka producer).
+	// It is called synchronously from the rollup engine for each flushed bar.
+	Hook agg.BarHook
+
+	// OnBarFlushed is an optional observability callback (e.g., logging, metrics).
+	// It is called from the consumeBars goroutine after the bar is written to storage.
+	// Do not use this for side-effects that duplicate the Hook path (e.g., Kafka).
+	OnBarFlushed func(*core.Bar)
 }
 
 // NewPipeline creates a pipeline for all configured series.
@@ -43,6 +50,16 @@ func NewPipeline(cfg PipelineConfig) (*Pipeline, error) {
 		series:  make(map[string]*SeriesPipeline),
 		writer:  cfg.Writer,
 		barSink: cfg.OnBarFlushed,
+	}
+
+	// Verify series ID uniqueness before proceeding (H-1)
+	seenIDs := make(map[uint16]string, len(cfg.Specs))
+	for _, spec := range cfg.Specs {
+		id := stableSeriesID(spec.Series)
+		if existing, conflict := seenIDs[id]; conflict {
+			return nil, fmt.Errorf("series ID collision: %q and %q both hash to %d", spec.Series, existing, id)
+		}
+		seenIDs[id] = spec.Series
 	}
 
 	for _, spec := range cfg.Specs {
@@ -141,24 +158,23 @@ func (p *Pipeline) SeriesIDs() map[string]uint16 {
 
 // stableSeriesID derives a deterministic series ID from the series name.
 // This ensures adding/removing/reordering spec files doesn't change existing IDs.
-// ID 0 is reserved; on collision (astronomically unlikely with FNV-1a), the second
-// series will fail to register and error at startup.
+// ID 0 is reserved. Collisions are possible in a 16-bit space; NewPipeline
+// detects them at startup and returns an error.
 func stableSeriesID(name string) uint16 {
 	h := fnv.New32a()
 	h.Write([]byte(name))
-	id := uint16(h.Sum32()%65534) + 1 // range [1, 65535]
+	id := uint16(h.Sum32()%65535) + 1 // range [1, 65535]
 	return id
 }
 
 // Close gracefully shuts down all series pipelines.
 func (p *Pipeline) Close() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	for _, sp := range p.series {
 		sp.Batcher.Close()
 		sp.Rollup.Close() // closes BarChan, which unblocks consumeBars
 	}
+	p.mu.Unlock()
 
 	p.wg.Wait() // wait for all consumeBars goroutines to finish
 }

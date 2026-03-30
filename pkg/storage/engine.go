@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/cockroachdb/pebble"
@@ -51,6 +52,14 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	db, err := pebble.Open(cfg.DataDir, opts)
 	if err != nil {
 		return nil, fmt.Errorf("opening pebble at %s: %w", cfg.DataDir, err)
+	}
+
+	// Warn operators that TTL/size-based retention is not yet enforced
+	if cfg.TicksTTL > 0 || cfg.TicksMaxSize > 0 {
+		log.Printf("storage: WARNING: ticks TTL (%s) and max size (%d bytes) are configured but not yet enforced — storage will grow without bound", cfg.TicksTTL, cfg.TicksMaxSize)
+	}
+	if cfg.RollupTTL > 0 || cfg.RollupMaxSize > 0 {
+		log.Printf("storage: WARNING: rollup TTL (%s) and max size (%d bytes) are configured but not yet enforced — storage will grow without bound", cfg.RollupTTL, cfg.RollupMaxSize)
 	}
 
 	return &Engine{db: db}, nil
