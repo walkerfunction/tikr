@@ -1,0 +1,11 @@
+.git
+.github
+.claude
+.githooks
+python-sdk
+examples
+docs
+*.md
+CODE_REVIEW*.md
+TODO.md
+LICENSE
