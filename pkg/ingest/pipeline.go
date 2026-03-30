@@ -114,6 +114,11 @@ func (p *Pipeline) Ingest(tick core.Tick) error {
 	}
 
 	sp.Batcher.Add(tick)
+
+	if p.metrics != nil {
+		p.metrics.TicksTotal.Add(context.Background(), 1)
+	}
+
 	return nil
 }
 
