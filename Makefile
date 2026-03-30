@@ -1,4 +1,4 @@
-.PHONY: build test integration-test lint bench proto docker docker-up docker-down clean
+.PHONY: build test integration-test lint bench proto docker docker-up docker-down docker-clean docker-logs clean
 
 BINARY_NAME=tikr
 DEV_IMAGE=tikr-dev
@@ -43,16 +43,23 @@ proto: dev-image
 
 # --- Production Docker ---
 
-# Build the production image
+# Build the production image (removes old image first to reclaim space)
 docker:
+	docker rmi $(PROD_IMAGE):latest 2>/dev/null || true
 	docker build -f docker/Dockerfile -t $(PROD_IMAGE):latest .
 
-# Start full stack (tikr + kafka)
+# Start full stack (tikr + kafka), rebuild tikr image
 docker-up:
-	$(DOCKER_COMPOSE) up -d
+	$(DOCKER_COMPOSE) up -d --build
 
+# Stop stack and remove containers
 docker-down:
 	$(DOCKER_COMPOSE) down
+
+# Stop stack, remove containers, volumes, and orphan images
+docker-clean:
+	$(DOCKER_COMPOSE) down -v --rmi local
+	docker image prune -f
 
 docker-logs:
 	$(DOCKER_COMPOSE) logs -f
