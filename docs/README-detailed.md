@@ -32,8 +32,17 @@ Tikr is an edge rollup engine that sits between high-frequency data sources and 
 1. **Ingest**: Client opens a gRPC streaming connection (`IngestTicks`), sending batches of `IngestRequest` messages. Each request contains a series name and a list of `TickData` points.
 2. **Batcher**: Groups incoming ticks by series and flushes them to storage and the rollup engine.
 3. **Storage**: Raw ticks are written to Pebble under the `0x01` prefix. Keys are big-endian encoded: `[prefix][series_id][dimension_hash][timestamp_ns]`.
-4. **Rollup**: The `RollupEngine` maintains in-memory accumulators per dimension combination. When a 1-second boundary is crossed, it flushes completed bars to Pebble (prefix `0x02`) and pushes them to the output channel (Kafka).
+4. **Rollup**: The `RollupEngine` maintains in-memory accumulators per dimension combination. When a 1-second boundary is crossed, it flushes completed bars to Pebble (prefix `0x02`) and pushes them to Kafka as **standard OTLP protobuf** (`ResourceMetrics`). Each bar metric becomes a Gauge data point with dimensions as attributes.
 5. **Query**: Clients call `QueryTicks` or `QueryBars` to read raw data or rolled-up bars for a time range.
+
+### OTLP Kafka Output
+
+Bars on Kafka are encoded as OTLP `ResourceMetrics` protobuf. Any OTel-compatible backend (Grafana, Datadog, ClickHouse, etc.) can consume them directly without custom deserializers.
+
+For a market ticks bar, the Kafka message contains:
+- `market_ticks.open`, `market_ticks.high`, `market_ticks.low`, `market_ticks.close`, `market_ticks.volume`, `market_ticks.tick_count` as Gauge data points
+- Dimension attributes (e.g., `symbol=AAPL`)
+- `BucketTs` as the data point timestamp
 
 ## YAML Series Specs
 
@@ -82,7 +91,7 @@ granularity:
 output:
   kafka:
     topic: tikr-bars-market-1s
-    encoding: proto
+    encoding: otlp
     on_failure: drop
 ```
 
@@ -182,7 +191,7 @@ The main configuration file is `config/default.yaml`:
 | `storage.rollup` | `max_size_gb` | `5` | Max bar storage |
 | `kafka` | `brokers` | `["kafka:9092"]` | Kafka broker addresses |
 | `telemetry` | `enabled` | `true` | Enable OpenTelemetry |
-| `telemetry.prometheus` | `port` | `9878` | Prometheus scrape port |
+| `telemetry` | `service_name` | `tikr` | OTel service name |
 | | `specs_dir` | `/etc/tikr/specs` | Directory for YAML spec files |
 
 ## Docker Deployment
@@ -219,8 +228,8 @@ docker compose -f docker/docker-compose.yml down
 |------|----------|---------|
 | 9876 | gRPC | Ingest and Query API |
 | 9877 | HTTP | Health and debug endpoints |
-| 9878 | HTTP | Prometheus metrics |
-| 9092 | TCP | Kafka (for bar output) |
+| 9878 | HTTP | OTel metrics |
+| 9092 | TCP | Kafka (OTLP bar output) |
 
 ## gRPC API Reference
 
@@ -240,7 +249,7 @@ Proto definition: `proto/tikr.proto`
 
 - **`IngestRequest`**: `{series, ticks[]}` -- batch of ticks for a named series
 - **`TickData`**: `{timestamp_ns, dimensions{}, fields{}, sequence}` -- single data point
-- **`BarData`**: `{series, bucket_ts, dimensions{}, metrics{}, first_timestamp, last_timestamp, tick_count}` -- rolled-up bar
+- **`BarData`**: `{series, bucket_ts, dimensions{}, metrics{}, first_timestamp, last_timestamp, tick_count}` -- rolled-up bar (gRPC query response; Kafka output uses OTLP encoding)
 - **`TickQuery`**: `{series, dimensions{}, start_ns, end_ns, limit}`
 - **`BarQuery`**: `{series, dimensions{}, start_ns, end_ns}`
 
