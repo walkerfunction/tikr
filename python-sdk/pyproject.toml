@@ -31,3 +31,6 @@ Issues = "https://github.com/walkerfunction/tikr/issues"
 
 [tool.setuptools.packages.find]
 include = ["tikr*"]
+
+[tool.setuptools.package-data]
+tikr = ["proto/*.proto"]

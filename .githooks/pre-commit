@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+# Ensure tools are in PATH
+export PATH="$PATH:$(go env GOPATH 2>/dev/null)/bin:/usr/local/bin"
+
+echo "=== Pre-commit: ruff check ==="
+if command -v ruff &>/dev/null; then
+    ruff check python-sdk/ examples/python/
+    echo "=== Pre-commit: ruff format ==="
+    ruff format --check python-sdk/ examples/python/
+else
+    echo "SKIP: ruff not found (pip install ruff)"
+fi
+
+echo "=== Pre-commit: golangci-lint ==="
+if command -v golangci-lint &>/dev/null; then
+    golangci-lint run ./...
+else
+    echo "SKIP: golangci-lint not found (https://golangci-lint.run/welcome/install)"
+fi
+
+echo "=== All checks passed ==="

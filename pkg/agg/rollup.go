@@ -139,8 +139,8 @@ func (r *RollupEngine) flushBucketLocked(dimHash uint64, state *BucketState, dim
 	default:
 	}
 
-	// Call hook
-	r.hook.OnBarFlushed(context.Background(), bar)
+	// Call hook (error intentionally ignored — hooks must not block rollup)
+	_ = r.hook.OnBarFlushed(context.Background(), bar)
 
 	delete(r.buckets, dimHash)
 }

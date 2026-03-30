@@ -121,24 +121,28 @@ func TestPipeline_IngestAndRollup(t *testing.T) {
 
 	// Send 5 ticks in bucket 1
 	for i := 0; i < 5; i++ {
-		pipeline.Ingest(core.Tick{
+		if err := pipeline.Ingest(core.Tick{
 			TimestampNs: baseNs + uint64(i*100),
 			Series:      "test",
 			Dimensions:  dims,
 			Fields:      map[string]int64{"v": 10},
-		})
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// Wait for batcher timer to flush
 	time.Sleep(50 * time.Millisecond)
 
 	// Send tick in bucket 2 to trigger rollup flush
-	pipeline.Ingest(core.Tick{
+	if err := pipeline.Ingest(core.Tick{
 		TimestampNs: 2*baseNs + 100,
 		Series:      "test",
 		Dimensions:  dims,
 		Fields:      map[string]int64{"v": 1},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Wait for flush propagation
 	time.Sleep(100 * time.Millisecond)

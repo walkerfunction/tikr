@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterator, Sequence
+from typing import Iterator
 
 import grpc
 
@@ -43,7 +43,7 @@ class TikrClient:
     def ingest(
         self,
         series: str,
-        ticks: Sequence[Tick],
+        ticks: list[Tick],
         batch_size: int = 5000,
     ) -> int:
         """Ingest ticks into a series. Returns total ticks accepted."""
@@ -93,15 +93,17 @@ class TikrClient:
         )
         bars = []
         for b in self._stub.QueryBars(req):
-            bars.append(Bar(
-                series=b.series,
-                bucket_ts=b.bucket_ts,
-                dimensions=dict(b.dimensions),
-                metrics=dict(b.metrics),
-                first_timestamp=b.first_timestamp,
-                last_timestamp=b.last_timestamp,
-                tick_count=b.tick_count,
-            ))
+            bars.append(
+                Bar(
+                    series=b.series,
+                    bucket_ts=b.bucket_ts,
+                    dimensions=dict(b.dimensions),
+                    metrics=dict(b.metrics),
+                    first_timestamp=b.first_timestamp,
+                    last_timestamp=b.last_timestamp,
+                    tick_count=b.tick_count,
+                )
+            )
         return bars
 
     def query_ticks(
@@ -123,12 +125,14 @@ class TikrClient:
         )
         ticks = []
         for t in self._stub.QueryTicks(req):
-            ticks.append(Tick(
-                timestamp_ns=t.timestamp_ns,
-                dimensions=dict(t.dimensions),
-                fields=dict(t.fields),
-                sequence=t.sequence,
-            ))
+            ticks.append(
+                Tick(
+                    timestamp_ns=t.timestamp_ns,
+                    dimensions=dict(t.dimensions),
+                    fields=dict(t.fields),
+                    sequence=t.sequence,
+                )
+            )
         return ticks
 
     # ── Admin ───────────────────────────────────────────────────────
