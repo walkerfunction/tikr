@@ -76,6 +76,10 @@ func PrefixedKey(prefix byte, key []byte) []byte {
 
 // PrefixUpperBound returns the upper bound for prefix iteration.
 // For prefix byte 0x01, this returns 0x02.
+// Panics if prefix is 0xFF (no valid upper bound exists).
 func PrefixUpperBound(prefix byte) []byte {
+	if prefix == 0xFF {
+		panic("PrefixUpperBound: cannot compute upper bound for prefix 0xFF")
+	}
 	return []byte{prefix + 1}
 }

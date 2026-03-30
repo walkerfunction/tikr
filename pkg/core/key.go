@@ -78,6 +78,9 @@ func DimensionHash(dims map[string]string) uint64 {
 
 // TickKeyRange returns start/end keys for range scanning ticks
 // of a specific series+dimension in a time range.
+// Keys are 18 bytes (series_id + dim_hash + timestamp) — intentionally shorter than
+// the full 22-byte tick key. Pebble uses these as prefix bounds, so any 22-byte tick
+// key sharing this 18-byte prefix falls within the scan range.
 func TickKeyRange(seriesID uint16, dimHash uint64, startNs, endNs uint64) ([]byte, []byte) {
 	start := make([]byte, 18)
 	binary.BigEndian.PutUint16(start[0:2], seriesID)

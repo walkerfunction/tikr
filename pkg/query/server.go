@@ -35,15 +35,12 @@ func (s *Server) QueryTicks(req *pb.TickQuery, stream pb.Tikr_QueryTicksServer) 
 	}
 
 	dimHash := core.DimensionHash(req.Dimensions)
-	ticks, err := s.reader.ReadTicks(sp.SeriesID, dimHash, req.StartNs, req.EndNs)
+	ticks, err := s.reader.ReadTicks(sp.SeriesID, dimHash, req.StartNs, req.EndNs, req.Limit)
 	if err != nil {
 		return fmt.Errorf("reading ticks: %w", err)
 	}
 
-	for i, tick := range ticks {
-		if req.Limit > 0 && uint32(i) >= req.Limit {
-			break
-		}
+	for _, tick := range ticks {
 		if err := stream.Send(&pb.TickData{
 			TimestampNs: tick.TimestampNs,
 			Dimensions:  tick.Dimensions,
@@ -109,11 +106,14 @@ func (s *Server) ListSeries(_ context.Context, _ *pb.Empty) (*pb.SeriesList, err
 	return &pb.SeriesList{Series: list}, nil
 }
 
+// Version is set at build time via ldflags.
+var Version = "dev"
+
 // GetInfo returns server information.
 func (s *Server) GetInfo(_ context.Context, _ *pb.Empty) (*pb.ServerInfo, error) {
 	seriesList, _ := s.ListSeries(context.Background(), nil)
 	return &pb.ServerInfo{
-		Version: "0.1.0",
+		Version: Version,
 		Series:  seriesList.Series,
 	}, nil
 }

@@ -49,7 +49,7 @@ func TestWriter_WriteTicks_ReadBack(t *testing.T) {
 	}
 
 	// Read back
-	got, err := reader.ReadTicks(seriesID, dimHash, 0, 10000)
+	got, err := reader.ReadTicks(seriesID, dimHash, 0, 10000, 0)
 	if err != nil {
 		t.Fatalf("read ticks: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestWriter_MultipleDimensions(t *testing.T) {
 
 	// Read AAPL only
 	aaplHash := core.DimensionHash(aapl)
-	got, err := reader.ReadTicks(seriesID, aaplHash, 0, 10000)
+	got, err := reader.ReadTicks(seriesID, aaplHash, 0, 10000, 0)
 	if err != nil {
 		t.Fatalf("read ticks: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestWriter_MultipleDimensions(t *testing.T) {
 
 	// Read GOOG only
 	googHash := core.DimensionHash(goog)
-	got, err = reader.ReadTicks(seriesID, googHash, 0, 10000)
+	got, err = reader.ReadTicks(seriesID, googHash, 0, 10000, 0)
 	if err != nil {
 		t.Fatalf("read ticks: %v", err)
 	}

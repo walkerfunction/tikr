@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log"
 	"sync"
 
@@ -44,8 +45,8 @@ func NewPipeline(cfg PipelineConfig) (*Pipeline, error) {
 		barSink: cfg.OnBarFlushed,
 	}
 
-	for i, spec := range cfg.Specs {
-		seriesID := uint16(i + 1)
+	for _, spec := range cfg.Specs {
+		seriesID := stableSeriesID(spec.Series)
 
 		rollup, err := agg.NewRollupEngine(spec, seriesID, cfg.Hook)
 		if err != nil {
@@ -136,6 +137,17 @@ func (p *Pipeline) SeriesIDs() map[string]uint16 {
 		ids[name] = sp.SeriesID
 	}
 	return ids
+}
+
+// stableSeriesID derives a deterministic series ID from the series name.
+// This ensures adding/removing/reordering spec files doesn't change existing IDs.
+// ID 0 is reserved; on collision (astronomically unlikely with FNV-1a), the second
+// series will fail to register and error at startup.
+func stableSeriesID(name string) uint16 {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	id := uint16(h.Sum32()%65534) + 1 // range [1, 65535]
+	return id
 }
 
 // Close gracefully shuts down all series pipelines.

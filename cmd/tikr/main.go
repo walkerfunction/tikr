@@ -25,7 +25,11 @@ import (
 	"github.com/walkerfunction/tikr/pkg/telemetry"
 )
 
-var version = "0.1.0"
+var version = "0.1.0" // overridden by ldflags: -X main.version=...
+
+func init() {
+	query.Version = version
+}
 
 func main() {
 	configPath := flag.String("config", "/etc/tikr/default.yaml", "path to config file")
@@ -56,8 +60,14 @@ func main() {
 	}
 
 	// Open storage
-	ticksTTL, _ := cfg.Storage.Ticks.TTLDuration()
-	rollupTTL, _ := cfg.Storage.Rollup.TTLDuration()
+	ticksTTL, err := cfg.Storage.Ticks.TTLDuration()
+	if err != nil {
+		log.Fatalf("invalid ticks TTL: %v", err)
+	}
+	rollupTTL, err := cfg.Storage.Rollup.TTLDuration()
+	if err != nil {
+		log.Fatalf("invalid rollup TTL: %v", err)
+	}
 	engine, err := storage.NewEngine(storage.EngineConfig{
 		DataDir:       cfg.Storage.DataDir,
 		TicksTTL:      ticksTTL,
@@ -111,7 +121,10 @@ func main() {
 		log.Fatalf("listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(16*1024*1024), // 16MB max ingest message
+		grpc.MaxSendMsgSize(16*1024*1024), // 16MB max query response
+	)
 	combined := &combinedServer{
 		ingest: ingest.NewServerWithMetrics(pipeline, metrics),
 		query:  query.NewServer(reader, pipeline, specs),
