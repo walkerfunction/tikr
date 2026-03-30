@@ -1,4 +1,4 @@
-.PHONY: build test lint bench proto docker docker-up docker-down clean
+.PHONY: build test integration-test lint bench proto docker docker-up docker-down clean
 
 BINARY_NAME=tikr
 DEV_IMAGE=tikr-dev
@@ -14,6 +14,11 @@ dev-image:
 # Run all tests inside Docker
 test: dev-image
 	docker run --rm $(DEV_IMAGE) go test -race -v ./pkg/...
+
+# Run integration tests (testcontainers — needs Docker socket)
+integration-test: dev-image
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(DEV_IMAGE) \
+		go test -race -v -timeout 300s ./tests/integration/
 
 # Build the binary inside Docker (output to bin/)
 build: dev-image

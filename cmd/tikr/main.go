@@ -22,6 +22,7 @@ import (
 	pb "github.com/tikr-dev/tikr/pkg/pb"
 	"github.com/tikr-dev/tikr/pkg/query"
 	"github.com/tikr-dev/tikr/pkg/storage"
+	"github.com/tikr-dev/tikr/pkg/telemetry"
 )
 
 var version = "0.1.0"
@@ -40,6 +41,12 @@ func main() {
 	specs, err := core.LoadSpecs(cfg.SpecsDir)
 	if err != nil {
 		log.Fatalf("specs: %v", err)
+	}
+
+	// Initialize OpenTelemetry metrics
+	metrics, err := telemetry.NewMetrics(cfg.Telemetry.ServiceName)
+	if err != nil {
+		log.Fatalf("telemetry: %v", err)
 	}
 
 	fmt.Printf("Tikr %s\n", version)
@@ -106,7 +113,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	combined := &combinedServer{
-		ingest: ingest.NewServer(pipeline),
+		ingest: ingest.NewServerWithMetrics(pipeline, metrics),
 		query:  query.NewServer(reader, pipeline, specs),
 	}
 	pb.RegisterTikrServer(grpcServer, combined)
@@ -131,6 +138,7 @@ func main() {
 	if kafkaProducer != nil {
 		kafkaProducer.Close()
 	}
+	metrics.Shutdown(context.Background())
 	engine.Close()
 	time.Sleep(100 * time.Millisecond)
 	fmt.Println("bye")

@@ -6,17 +6,24 @@ import (
 
 	"github.com/tikr-dev/tikr/pkg/core"
 	pb "github.com/tikr-dev/tikr/pkg/pb"
+	"github.com/tikr-dev/tikr/pkg/telemetry"
 )
 
 // Server implements the gRPC Tikr ingest service.
 type Server struct {
 	pb.UnimplementedTikrServer
 	pipeline *Pipeline
+	metrics  *telemetry.Metrics // nil-safe: all methods check before recording
 }
 
 // NewServer creates a new ingest gRPC server.
 func NewServer(pipeline *Pipeline) *Server {
 	return &Server{pipeline: pipeline}
+}
+
+// NewServerWithMetrics creates an ingest server with OTel instrumentation.
+func NewServerWithMetrics(pipeline *Pipeline, m *telemetry.Metrics) *Server {
+	return &Server{pipeline: pipeline, metrics: m}
 }
 
 // IngestTicks handles streaming tick ingestion.
@@ -36,6 +43,7 @@ func (s *Server) IngestTicks(stream pb.Tikr_IngestTicksServer) error {
 
 		seriesName := req.Series
 
+		batchSize := len(req.Ticks)
 		for _, t := range req.Ticks {
 			tick := core.Tick{
 				TimestampNs: t.TimestampNs,
@@ -50,6 +58,11 @@ func (s *Server) IngestTicks(stream pb.Tikr_IngestTicksServer) error {
 				continue
 			}
 			totalTicks++
+		}
+
+		if s.metrics != nil {
+			s.metrics.TicksTotal.Add(stream.Context(), int64(batchSize))
+			s.metrics.BatchSize.Record(stream.Context(), float64(batchSize))
 		}
 	}
 }

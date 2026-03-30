@@ -10,10 +10,13 @@ import (
 	"testing"
 	"time"
 
+	kafkago "github.com/segmentio/kafka-go"
 	"github.com/testcontainers/testcontainers-go"
+	tcnetwork "github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/tikr-dev/tikr/pkg/pb"
 )
@@ -657,7 +660,270 @@ func TestListSeries(t *testing.T) {
 	}
 }
 
-// TestKafkaIntegration will verify that rolled-up bars are published to Kafka.
+// TestKafkaIntegration verifies that rolled-up bars are published to Kafka.
+//
+// This test starts its OWN Kafka + Tikr containers on a shared Docker network,
+// separate from the shared Tikr container used by other tests.
+// It ingests deterministic ticks, then consumes the resulting bar from Kafka
+// and verifies all metrics match expected values.
 func TestKafkaIntegration(t *testing.T) {
-	t.Skip("kafka integration requires shared Docker network — enable after TIKR_KAFKA_BROKERS env wiring is verified")
+	ctx := context.Background()
+	root := projectRoot()
+
+	// 1. Create a Docker network for Kafka <-> Tikr communication
+	newNetwork, err := tcnetwork.New(ctx, tcnetwork.WithDriver("bridge"))
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	defer func() {
+		if err := newNetwork.Remove(ctx); err != nil {
+			t.Logf("remove network: %v", err)
+		}
+	}()
+
+	networkName := newNetwork.Name
+
+	// 2. Start Kafka container (KRaft mode, no Zookeeper)
+	kafkaReq := testcontainers.ContainerRequest{
+		Image:        "confluentinc/cp-kafka:7.6.0",
+		ExposedPorts: []string{"9092/tcp", "29092:29092/tcp"},
+		Env: map[string]string{
+			"KAFKA_NODE_ID":                         "1",
+			"KAFKA_PROCESS_ROLES":                   "broker,controller",
+			"KAFKA_CONTROLLER_QUORUM_VOTERS":        "1@kafka:9093",
+			"KAFKA_LISTENERS":                       "INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092",
+			"KAFKA_ADVERTISED_LISTENERS":             "INTERNAL://kafka:9092,EXTERNAL://172.17.0.1:29092",
+			"KAFKA_LISTENER_SECURITY_PROTOCOL_MAP":  "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT",
+			"KAFKA_CONTROLLER_LISTENER_NAMES":       "CONTROLLER",
+			"KAFKA_INTER_BROKER_LISTENER_NAME":      "INTERNAL",
+			"KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR": "1",
+			"KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS": "0",
+			"CLUSTER_ID":                            "MkU3OEVBNTcwNTJENDM2Qg",
+			"KAFKA_AUTO_CREATE_TOPICS_ENABLE":        "true",
+		},
+		Networks:       []string{networkName},
+		NetworkAliases: map[string][]string{networkName: {"kafka"}},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("9092/tcp"),
+			wait.ForLog("Kafka Server started"),
+		).WithStartupTimeout(90 * time.Second),
+	}
+
+	kafkaC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: kafkaReq,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("start kafka container: %v", err)
+	}
+	defer func() { _ = kafkaC.Terminate(ctx) }()
+
+	// EXTERNAL listener is bound on fixed port 29092 -> host 29092 (matching advertised).
+	kafkaHostAddr := "172.17.0.1:29092"
+	t.Logf("kafka accessible at %s (EXTERNAL listener)", kafkaHostAddr)
+
+	// Pre-create the Kafka topic via EXTERNAL listener to avoid "Unknown Topic" on first produce.
+	time.Sleep(3 * time.Second) // let Kafka fully start
+	kafkaConn, err := kafkago.Dial("tcp", kafkaHostAddr)
+	if err != nil {
+		t.Fatalf("dial kafka to create topic: %v", err)
+	}
+	err = kafkaConn.CreateTopics(kafkago.TopicConfig{
+		Topic:             "tikr-bars-market-1s",
+		NumPartitions:     1,
+		ReplicationFactor: 1,
+	})
+	kafkaConn.Close()
+	if err != nil {
+		t.Logf("create topic (may already exist): %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	// 3. Build and start Tikr container on the same network with Kafka env
+	tikrReq := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:    root,
+			Dockerfile: "docker/Dockerfile",
+		},
+		ExposedPorts: []string{"9876/tcp"},
+		Env: map[string]string{
+			"TIKR_KAFKA_BROKERS": "kafka:9092",
+		},
+		Networks:   []string{networkName},
+		WaitingFor: wait.ForLog("ready").WithStartupTimeout(120 * time.Second),
+	}
+
+	tikrC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: tikrReq,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("start tikr container: %v", err)
+	}
+	defer func() { _ = tikrC.Terminate(ctx) }()
+
+	tikrHost, err := tikrC.Host(ctx)
+	if err != nil {
+		t.Fatalf("tikr host: %v", err)
+	}
+	tikrPort, err := tikrC.MappedPort(ctx, "9876")
+	if err != nil {
+		t.Fatalf("tikr mapped port: %v", err)
+	}
+	kafkaTikrAddr := fmt.Sprintf("%s:%s", tikrHost, tikrPort.Port())
+	t.Logf("tikr (kafka) accessible at %s", kafkaTikrAddr)
+
+	// 4. Ingest deterministic market ticks via gRPC (same pattern as TestRollupCorrectness_MarketTicks)
+	conn := dial(t, kafkaTikrAddr)
+	defer conn.Close()
+	client := pb.NewTikrClient(conn)
+
+	stream, err := client.IngestTicks(ctx)
+	if err != nil {
+		t.Fatalf("IngestTicks: %v", err)
+	}
+
+	symbol := fmt.Sprintf("KAFKA_%d", time.Now().UnixNano())
+	baseNs := uint64(time.Now().Unix()) * 1_000_000_000
+
+	type tickInput struct {
+		price    int64
+		quantity int64
+	}
+	inputs := []tickInput{
+		{price: 17520, quantity: 100}, // open
+		{price: 17550, quantity: 50},  // high
+		{price: 17480, quantity: 75},  // low
+		{price: 17530, quantity: 200},
+		{price: 17510, quantity: 25},  // close
+	}
+
+	wantOpen := int64(17520)
+	wantHigh := int64(17550)
+	wantLow := int64(17480)
+	wantClose := int64(17510)
+	wantVolume := int64(100 + 50 + 75 + 200 + 25) // 450
+	wantCount := uint64(5)
+
+	var ticks []*pb.TickData
+	for i, inp := range inputs {
+		ticks = append(ticks, &pb.TickData{
+			TimestampNs: baseNs + uint64(i)*1_000_000,
+			Dimensions:  map[string]string{"symbol": symbol},
+			Fields:      map[string]int64{"price": inp.price, "quantity": inp.quantity},
+			Sequence:    uint32(i),
+		})
+	}
+
+	if err := stream.Send(&pb.IngestRequest{
+		Series: "market_ticks",
+		Ticks:  ticks,
+	}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	// Send a tick in the NEXT second to force the rollup engine to flush
+	if err := stream.Send(&pb.IngestRequest{
+		Series: "market_ticks",
+		Ticks: []*pb.TickData{{
+			TimestampNs: baseNs + 2*1_000_000_000,
+			Dimensions:  map[string]string{"symbol": symbol},
+			Fields:      map[string]int64{"price": 99999, "quantity": 1},
+			Sequence:    0,
+		}},
+	}); err != nil {
+		t.Fatalf("Send flush tick: %v", err)
+	}
+
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+	t.Logf("ingested %d ticks", resp.TicksReceived)
+
+	// Wait for rollup flush + Kafka async write
+	time.Sleep(5 * time.Second)
+
+	// 5. Consume from Kafka EXTERNAL listener (172.17.0.1:29092)
+	reader := kafkago.NewReader(kafkago.ReaderConfig{
+		Brokers:     []string{kafkaHostAddr},
+		Topic:       "tikr-bars-market-1s",
+		GroupID:     fmt.Sprintf("test-consumer-%d", time.Now().UnixNano()),
+		StartOffset: kafkago.FirstOffset,
+		MaxWait:     1 * time.Second,
+	})
+	defer reader.Close()
+
+	// Read messages with a timeout — we expect at least one bar matching our symbol
+	deadline := time.After(10 * time.Second)
+	var matchedBar *pb.BarData
+
+	for matchedBar == nil {
+		select {
+		case <-deadline:
+			// Dump Tikr container logs for debugging
+		logReader, _ := tikrC.Logs(ctx)
+		if logReader != nil {
+			logBytes, _ := io.ReadAll(logReader)
+			t.Logf("tikr logs:\n%s", string(logBytes))
+			logReader.Close()
+		}
+		t.Fatal("timed out waiting for bar on Kafka topic tikr-bars-market-1s")
+		default:
+		}
+
+		readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
+		msg, err := reader.ReadMessage(readCtx)
+		readCancel()
+		if err != nil {
+			// Timeout on ReadMessage is expected while waiting for data
+			continue
+		}
+
+		var bar pb.BarData
+		if err := proto.Unmarshal(msg.Value, &bar); err != nil {
+			t.Logf("skipping message: proto unmarshal error: %v", err)
+			continue
+		}
+
+		// Match on our unique symbol
+		if bar.Dimensions["symbol"] == symbol {
+			matchedBar = &bar
+			t.Logf("found bar: series=%s bucket=%d ticks=%d", bar.Series, bar.BucketTs, bar.TickCount)
+		}
+	}
+
+	// 6. Verify bar metrics match expected values exactly
+	failures := 0
+	check := func(name string, got, want int64) {
+		if got != want {
+			t.Errorf("  %s: got %d, want %d (MISMATCH)", name, got, want)
+			failures++
+		} else {
+			t.Logf("  %s: %d OK", name, got)
+		}
+	}
+
+	check("open  (first)", matchedBar.Metrics["open"], wantOpen)
+	check("high  (max)", matchedBar.Metrics["high"], wantHigh)
+	check("low   (min)", matchedBar.Metrics["low"], wantLow)
+	check("close (last)", matchedBar.Metrics["close"], wantClose)
+	check("volume (sum)", matchedBar.Metrics["volume"], wantVolume)
+
+	if matchedBar.TickCount != wantCount {
+		t.Errorf("  tick_count: got %d, want %d (MISMATCH)", matchedBar.TickCount, wantCount)
+		failures++
+	} else {
+		t.Logf("  tick_count: %d OK", matchedBar.TickCount)
+	}
+
+	if matchedBar.Series != "market_ticks" {
+		t.Errorf("  series: got %s, want market_ticks", matchedBar.Series)
+		failures++
+	}
+
+	if failures > 0 {
+		t.Fatalf("%d metric(s) failed verification — Kafka bar is NOT correct", failures)
+	}
+	t.Log("ALL Kafka bar metrics match expected values — Kafka integration verified")
 }
