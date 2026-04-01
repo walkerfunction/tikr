@@ -76,8 +76,10 @@ type Reaper struct {
 	stopOnce sync.Once
 	wg       sync.WaitGroup
 
-	// ReapErrors counts consecutive reap failures. Exposed for monitoring.
-	ReapErrors uint64
+	// TickReapErrors counts consecutive tick reap failures. Exposed for monitoring.
+	TickReapErrors uint64
+	// RollupReapErrors counts consecutive rollup reap failures.
+	RollupReapErrors uint64
 }
 
 // NewReaper creates a reaper that periodically tombstones expired data.
@@ -124,28 +126,32 @@ func (r *Reaper) reap() {
 
 	if r.ttl.TicksTTL > 0 {
 		cutoff := cutoffNsAt(r.ttl.TicksTTL, now)
-		n, err := r.tombstoneGroups(PrefixTicks, cutoff)
-		if err != nil {
-			r.ReapErrors++
-			log.Printf("reaper: ticks error (consecutive=%d): %v", r.ReapErrors, err)
-		} else {
-			r.ReapErrors = 0
-			if n > 0 {
-				log.Printf("reaper: tombstoned %d tick group(s)", n)
+		if cutoff != 0 {
+			n, err := r.tombstoneGroups(PrefixTicks, cutoff)
+			if err != nil {
+				r.TickReapErrors++
+				log.Printf("reaper: ticks error (consecutive=%d): %v", r.TickReapErrors, err)
+			} else {
+				r.TickReapErrors = 0
+				if n > 0 {
+					log.Printf("reaper: tombstoned %d tick group(s)", n)
+				}
 			}
 		}
 	}
 
 	if r.ttl.RollupTTL > 0 {
 		cutoff := cutoffNsAt(r.ttl.RollupTTL, now)
-		n, err := r.tombstoneGroups(PrefixRollup, cutoff)
-		if err != nil {
-			r.ReapErrors++
-			log.Printf("reaper: rollup error (consecutive=%d): %v", r.ReapErrors, err)
-		} else {
-			r.ReapErrors = 0
-			if n > 0 {
-				log.Printf("reaper: tombstoned %d rollup group(s)", n)
+		if cutoff != 0 {
+			n, err := r.tombstoneGroups(PrefixRollup, cutoff)
+			if err != nil {
+				r.RollupReapErrors++
+				log.Printf("reaper: rollup error (consecutive=%d): %v", r.RollupReapErrors, err)
+			} else {
+				r.RollupReapErrors = 0
+				if n > 0 {
+					log.Printf("reaper: tombstoned %d rollup group(s)", n)
+				}
 			}
 		}
 	}
@@ -190,11 +196,10 @@ func (r *Reaper) tombstoneGroups(dataPrefix byte, cutoffNs uint64) (int, error) 
 	for iter.First(); iter.Valid(); iter.Next() {
 		// Key: [meta_prefix:1]["grp:":4][data_prefix:1][series_id:2][dim_hash:8]
 		raw := iter.Key()
-		// L4: use named constant instead of magic number 6
-		payload := raw[regHeaderLen:]
-		if len(payload) < 10 {
-			continue
+		if len(raw) < regHeaderLen+10 {
+			continue // truncated or corrupt key
 		}
+		payload := raw[regHeaderLen:]
 		groups = append(groups, group{
 			seriesID: binary.BigEndian.Uint16(payload[0:2]),
 			dimHash:  binary.BigEndian.Uint64(payload[2:10]),

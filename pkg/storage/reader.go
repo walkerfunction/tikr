@@ -49,8 +49,9 @@ func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint6
 		// Strip the prefix byte before decoding
 		rawKey := iter.Key()[1:]
 
-		// Lazy TTL: skip expired keys without decoding the value
-		if cutoff > 0 {
+		// Lazy TTL: skip expired keys without decoding the value.
+		// Length guard preserves DecodeTickKey's clean error for malformed keys.
+		if cutoff > 0 && len(rawKey) >= 18 {
 			tsNs := binary.BigEndian.Uint64(rawKey[10:18])
 			if tsNs < cutoff {
 				continue
@@ -98,12 +99,14 @@ func (r *Reader) ReadBars(seriesID uint16, dimHash uint64, startTs, endTs uint64
 	cutoff := r.ttl.rollupCutoffNs()
 
 	for iter.First(); iter.Valid(); iter.Next() {
-		// Lazy TTL: skip expired keys without decoding the value
+		// Lazy TTL: skip expired keys without decoding the value.
 		if cutoff > 0 {
 			rawKey := iter.Key()[1:]
-			bucketTs := binary.BigEndian.Uint64(rawKey[10:18])
-			if bucketTs < cutoff {
-				continue
+			if len(rawKey) >= 18 {
+				bucketTs := binary.BigEndian.Uint64(rawKey[10:18])
+				if bucketTs < cutoff {
+					continue
+				}
 			}
 		}
 

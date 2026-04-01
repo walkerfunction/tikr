@@ -30,6 +30,9 @@ func (c *StorageTierConfig) Validate() error {
 	if d < time.Hour {
 		return fmt.Errorf("TTL %s is below minimum (1h)", c.TTL)
 	}
+	if d > 24*time.Hour {
+		return fmt.Errorf("TTL %s exceeds maximum (24h)", c.TTL)
+	}
 	if c.MaxSizeGB <= 0 {
 		return fmt.Errorf("max_size_gb must be positive")
 	}
