@@ -4,12 +4,9 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	"github.com/cockroachdb/pebble"
-	"github.com/cockroachdb/pebble/bloom"
 )
 
-// Key prefixes act as virtual "column families" within a single Pebble instance.
+// Key prefixes act as virtual "column families" within a single Blob store.
 // All keys are prefixed with one byte to separate data types.
 const (
 	PrefixTicks  byte = 0x01
@@ -17,8 +14,17 @@ const (
 	PrefixMeta   byte = 0x03
 )
 
+// Backend identifies the storage backend.
+type Backend string
+
+const (
+	BackendPebble Backend = "pebble"
+	// BackendRocksDB Backend = "rocksdb" // future
+)
+
 // EngineConfig holds storage tuning parameters.
 type EngineConfig struct {
+	Backend       Backend
 	DataDir       string
 	TicksTTL      time.Duration
 	TicksMaxSize  int64 // bytes
@@ -26,53 +32,62 @@ type EngineConfig struct {
 	RollupMaxSize int64 // bytes
 }
 
-// Engine wraps a Pebble instance.
+// Engine wraps a Blob store and manages its lifecycle.
 type Engine struct {
-	db *pebble.DB
+	blob Blob
 }
 
-// NewEngine opens Pebble with tuned options.
+// NewEngine opens the configured storage backend.
+// Backend defaults to "pebble" if empty.
 func NewEngine(cfg EngineConfig) (*Engine, error) {
-	opts := &pebble.Options{
-		// Use prefix-based bloom filter for efficient prefix scans
-		Levels: []pebble.LevelOptions{
-			{TargetFileSize: 64 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.SnappyCompression},
-			{TargetFileSize: 128 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.SnappyCompression},
-			{TargetFileSize: 256 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.ZstdCompression},
-			{TargetFileSize: 512 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.ZstdCompression},
-			{TargetFileSize: 512 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.ZstdCompression},
-			{TargetFileSize: 512 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.ZstdCompression},
-			{TargetFileSize: 512 * 1024 * 1024, FilterPolicy: bloom.FilterPolicy(10), Compression: pebble.ZstdCompression},
-		},
-		MemTableSize:                64 * 1024 * 1024, // 64MB memtable
-		MemTableStopWritesThreshold: 4,
-		MaxOpenFiles:                1000,
+	backend := cfg.Backend
+	if backend == "" {
+		backend = BackendPebble
 	}
 
-	db, err := pebble.Open(cfg.DataDir, opts)
-	if err != nil {
-		return nil, fmt.Errorf("opening pebble at %s: %w", cfg.DataDir, err)
+	var blob Blob
+	var err error
+
+	switch backend {
+	case BackendPebble:
+		blob, err = OpenPebble(PebbleConfig{Dir: cfg.DataDir})
+		if err != nil {
+			return nil, fmt.Errorf("opening pebble: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unknown storage backend: %q", backend)
 	}
 
-	// Warn operators that TTL/size-based retention is not yet enforced
-	if cfg.TicksTTL > 0 || cfg.TicksMaxSize > 0 {
-		log.Printf("storage: WARNING: ticks TTL (%s) and max size (%d bytes) are configured but not yet enforced — storage will grow without bound", cfg.TicksTTL, cfg.TicksMaxSize)
-	}
-	if cfg.RollupTTL > 0 || cfg.RollupMaxSize > 0 {
-		log.Printf("storage: WARNING: rollup TTL (%s) and max size (%d bytes) are configured but not yet enforced — storage will grow without bound", cfg.RollupTTL, cfg.RollupMaxSize)
+	// If the backend supports native TTL, delegate to it
+	if ts, ok := blob.(TTLSupport); ok {
+		if cfg.TicksTTL > 0 {
+			if err := ts.SetTTL("ticks", cfg.TicksTTL.Nanoseconds()); err != nil {
+				log.Printf("storage: backend TTL for ticks: %v (falling back to reaper)", err)
+			}
+		}
+		if cfg.RollupTTL > 0 {
+			if err := ts.SetTTL("rollup", cfg.RollupTTL.Nanoseconds()); err != nil {
+				log.Printf("storage: backend TTL for rollup: %v (falling back to reaper)", err)
+			}
+		}
 	}
 
-	return &Engine{db: db}, nil
+	if cfg.TicksMaxSize > 0 || cfg.RollupMaxSize > 0 {
+		log.Printf("storage: max_size_gb is advisory only — %s does not enforce size-based limits", backend)
+	}
+
+	log.Printf("storage: opened %s at %s", backend, cfg.DataDir)
+	return &Engine{blob: blob}, nil
 }
 
-// DB returns the underlying Pebble instance.
-func (e *Engine) DB() *pebble.DB {
-	return e.db
+// Blob returns the underlying Blob store.
+func (e *Engine) Blob() Blob {
+	return e.blob
 }
 
 // Close shuts down the engine cleanly.
 func (e *Engine) Close() error {
-	return e.db.Close()
+	return e.blob.Close()
 }
 
 // PrefixedKey prepends the prefix byte to a key.

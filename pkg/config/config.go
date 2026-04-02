@@ -37,6 +37,7 @@ func (c *StorageTierConfig) Validate() error {
 }
 
 type StorageConfig struct {
+	Backend string            `yaml:"backend"` // "pebble" (default), future: "rocksdb"
 	DataDir string            `yaml:"data_dir"`
 	Ticks   StorageTierConfig `yaml:"ticks"`
 	Rollup  StorageTierConfig `yaml:"rollup"`
