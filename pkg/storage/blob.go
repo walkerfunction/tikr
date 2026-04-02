@@ -110,6 +110,7 @@ type NamespaceSupport interface {
 // delegates expiry to the backend instead of running the reaper.
 type TTLSupport interface {
 	// SetTTL configures automatic expiry for keys written after this call.
+	// ttlNanos is the time-to-live in nanoseconds for newly written keys.
 	// Pass 0 to disable TTL.
-	SetTTL(namespace string, ttl int64) error
+	SetTTL(namespace string, ttlNanos int64) error
 }

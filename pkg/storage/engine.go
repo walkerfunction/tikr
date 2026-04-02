@@ -62,14 +62,16 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	if ts, ok := blob.(TTLSupport); ok {
 		if cfg.TicksTTL > 0 {
 			if err := ts.SetTTL("ticks", cfg.TicksTTL.Nanoseconds()); err != nil {
-				log.Printf("storage: backend TTL for ticks: %v (falling back to reaper)", err)
+				log.Printf("storage: failed to apply backend TTL for ticks (TTL will not be enforced): %v", err)
 			}
 		}
 		if cfg.RollupTTL > 0 {
 			if err := ts.SetTTL("rollup", cfg.RollupTTL.Nanoseconds()); err != nil {
-				log.Printf("storage: backend TTL for rollup: %v (falling back to reaper)", err)
+				log.Printf("storage: failed to apply backend TTL for rollup (TTL will not be enforced): %v", err)
 			}
 		}
+	} else if cfg.TicksTTL > 0 || cfg.RollupTTL > 0 {
+		log.Printf("storage: %s does not support TTL; configured TTLs (ticks=%s, rollup=%s) will not be enforced", backend, cfg.TicksTTL, cfg.RollupTTL)
 	}
 
 	if cfg.TicksMaxSize > 0 || cfg.RollupMaxSize > 0 {

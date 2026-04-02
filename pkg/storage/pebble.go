@@ -8,8 +8,8 @@ import (
 )
 
 // PebbleBlob implements Blob backed by a Pebble LSM store.
-// Pebble does not support native namespaces or TTL — those are handled
-// by key-prefix emulation and the Reaper, respectively.
+// Pebble does not support native namespaces or TTL. Namespaces are
+// emulated via key prefixes; TTL requires external enforcement (e.g., Reaper).
 type PebbleBlob struct {
 	db *pebble.DB
 }

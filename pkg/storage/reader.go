@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/walkerfunction/tikr/pkg/core"
@@ -97,7 +98,7 @@ func (r *Reader) ReadBars(seriesID uint16, dimHash uint64, startTs, endTs uint64
 func (r *Reader) ReadMeta(key []byte) ([]byte, error) {
 	pk := PrefixedKey(PrefixMeta, key)
 	val, err := r.engine.blob.Get(pk)
-	if err == ErrNotFound {
+	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
