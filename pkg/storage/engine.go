@@ -18,9 +18,22 @@ const (
 type Backend string
 
 const (
-	BackendPebble Backend = "pebble"
-	// BackendRocksDB Backend = "rocksdb" // future
+	BackendPebble  Backend = "pebble"
+	BackendRocksDB Backend = "rocksdb"
 )
+
+// BackendOpener is a function that opens a Blob store at the given directory.
+type BackendOpener func(dir string) (Blob, error)
+
+// backends is the registry of available storage backends.
+// Backends register themselves via init() using RegisterBackend.
+var backends = map[Backend]BackendOpener{}
+
+// RegisterBackend registers a storage backend opener.
+// Called from init() in backend-specific files (e.g., rocksdb.go).
+func RegisterBackend(name Backend, opener BackendOpener) {
+	backends[name] = opener
+}
 
 // EngineConfig holds storage tuning parameters.
 type EngineConfig struct {
@@ -55,7 +68,14 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 			return nil, fmt.Errorf("opening pebble: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("unknown storage backend: %q", backend)
+		opener, ok := backends[backend]
+		if !ok {
+			return nil, fmt.Errorf("unknown storage backend: %q (available: pebble, or build with -tags rocksdb)", backend)
+		}
+		blob, err = opener(cfg.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("opening %s: %w", backend, err)
+		}
 	}
 
 	// If the backend supports native TTL, delegate to it
