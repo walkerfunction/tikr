@@ -3,6 +3,9 @@ package storage
 import (
 	"fmt"
 	"log"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,12 +30,37 @@ type BackendOpener func(dir string) (Blob, error)
 
 // backends is the registry of available storage backends.
 // Backends register themselves via init() using RegisterBackend.
-var backends = map[Backend]BackendOpener{}
+var (
+	backendsMu sync.Mutex
+	backends   = map[Backend]BackendOpener{}
+)
 
 // RegisterBackend registers a storage backend opener.
 // Called from init() in backend-specific files (e.g., rocksdb.go).
+// Panics on nil opener or duplicate registration.
 func RegisterBackend(name Backend, opener BackendOpener) {
+	if opener == nil {
+		panic(fmt.Sprintf("storage.RegisterBackend: nil opener for %q", name))
+	}
+	backendsMu.Lock()
+	defer backendsMu.Unlock()
+	if _, dup := backends[name]; dup {
+		panic(fmt.Sprintf("storage.RegisterBackend: duplicate backend %q", name))
+	}
 	backends[name] = opener
+}
+
+// availableBackends returns a sorted list of registered backend names
+// (always includes "pebble" which is hard-coded).
+func availableBackends() string {
+	backendsMu.Lock()
+	defer backendsMu.Unlock()
+	names := []string{string(BackendPebble)}
+	for name := range backends {
+		names = append(names, string(name))
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // EngineConfig holds storage tuning parameters.
@@ -68,9 +96,11 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 			return nil, fmt.Errorf("opening pebble: %w", err)
 		}
 	default:
+		backendsMu.Lock()
 		opener, ok := backends[backend]
+		backendsMu.Unlock()
 		if !ok {
-			return nil, fmt.Errorf("unknown storage backend: %q (available: pebble, or build with -tags rocksdb)", backend)
+			return nil, fmt.Errorf("unknown storage backend: %q (available: %s)", backend, availableBackends())
 		}
 		blob, err = opener(cfg.DataDir)
 		if err != nil {

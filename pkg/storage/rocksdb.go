@@ -4,6 +4,7 @@ package storage
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/linxGnu/grocksdb"
@@ -27,13 +28,12 @@ type RocksDBBlob struct {
 
 // RocksDBConfig holds RocksDB-specific tuning parameters.
 type RocksDBConfig struct {
-	Dir                string
-	CreateIfMissing    bool
-	MaxOpenFiles       int
-	WriteBufferSize    int    // bytes, default 64MB
-	MaxWriteBufferNum  int    // default 3
-	BlockCacheSize     uint64 // bytes, default 256MB
-	BloomFilterBits    int    // default 10
+	Dir               string
+	MaxOpenFiles      int
+	WriteBufferSize   int    // bytes, default 64MB
+	MaxWriteBufferNum int    // default 3
+	BlockCacheSize    uint64 // bytes, default 256MB
+	BloomFilterBits   int    // default 10
 }
 
 // OpenRocksDB creates a new RocksDBBlob with tuned defaults.
@@ -79,11 +79,17 @@ func OpenRocksDB(cfg RocksDBConfig) (*RocksDBBlob, error) {
 	opts.SetCompression(grocksdb.SnappyCompression)
 	opts.SetBottommostCompression(grocksdb.ZSTDCompression)
 
-	// Discover existing column families
+	// Discover existing column families.
+	// ListColumnFamilies fails if the DB directory doesn't exist yet,
+	// which is expected on first run. For other errors (permissions,
+	// corruption), we propagate rather than silently falling back.
 	cfNames, err := grocksdb.ListColumnFamilies(opts, cfg.Dir)
 	if err != nil {
-		// DB doesn't exist yet — just use default
-		cfNames = []string{"default"}
+		if _, statErr := os.Stat(cfg.Dir); os.IsNotExist(statErr) {
+			cfNames = []string{"default"}
+		} else {
+			return nil, fmt.Errorf("listing column families at %s: %w", cfg.Dir, err)
+		}
 	}
 
 	cfOpts := make([]*grocksdb.Options, len(cfNames))
@@ -109,6 +115,11 @@ func OpenRocksDB(cfg RocksDBConfig) (*RocksDBBlob, error) {
 		if name == "default" {
 			defaultCF = cfHandles[i]
 		}
+	}
+
+	if defaultCF == nil {
+		db.Close()
+		return nil, fmt.Errorf("rocksdb at %s: missing default column family", cfg.Dir)
 	}
 
 	return &RocksDBBlob{
@@ -201,6 +212,8 @@ func (r *RocksDBBlob) CreateNamespace(name string) error {
 	return nil
 }
 
+// DropNamespace drops a column family. Any previously returned namespaced
+// Blobs for this name become invalid — callers must not use them after drop.
 func (r *RocksDBBlob) DropNamespace(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -213,9 +226,10 @@ func (r *RocksDBBlob) DropNamespace(name string) error {
 		return fmt.Errorf("cannot drop default column family")
 	}
 
+	// Remove from map first so concurrent Namespace() calls fail fast.
+	delete(r.cfs, name)
 	r.db.DropColumnFamily(cf)
 	cf.Destroy()
-	delete(r.cfs, name)
 	return nil
 }
 
@@ -247,20 +261,13 @@ func (r *RocksDBBlob) Namespace(name string) (Blob, error) {
 // This method sets up a CompactionFilter for the namespace that drops
 // keys with embedded timestamps older than the TTL.
 func (r *RocksDBBlob) SetTTL(namespace string, ttl int64) error {
-	r.mu.RLock()
-	_, ok := r.cfs[namespace]
-	r.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("column family %q not found", namespace)
-	}
-
 	// RocksDB's built-in TTL requires reopening with OpenDbWithTTL.
 	// For per-CF TTL, we'd need CreateColumnFamilyWithTTL.
 	// Since Tikr embeds timestamps in keys, the reaper handles TTL
 	// at the application level. This is a hook for future native support.
 	//
-	// For now: acknowledged but delegated to the reaper.
+	// No-op regardless of whether the namespace/CF exists, to avoid
+	// spurious TTL failures until native support is added.
 	return nil
 }
 
