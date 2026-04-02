@@ -75,7 +75,8 @@ type EngineConfig struct {
 
 // Engine wraps a Blob store and manages its lifecycle.
 type Engine struct {
-	blob Blob
+	blob   Blob
+	reaper *Reaper
 }
 
 // NewEngine opens the configured storage backend.
@@ -108,8 +109,11 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 		}
 	}
 
-	// If the backend supports native TTL, delegate to it
+	// If the backend supports native TTL, delegate to it.
+	// Otherwise, start the reaper for application-level TTL enforcement.
+	nativeTTL := false
 	if ts, ok := blob.(TTLSupport); ok {
+		nativeTTL = true
 		if cfg.TicksTTL > 0 {
 			if err := ts.SetTTL("ticks", cfg.TicksTTL.Nanoseconds()); err != nil {
 				log.Printf("storage: failed to apply backend TTL for ticks (TTL will not be enforced): %v", err)
@@ -120,8 +124,6 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 				log.Printf("storage: failed to apply backend TTL for rollup (TTL will not be enforced): %v", err)
 			}
 		}
-	} else if cfg.TicksTTL > 0 || cfg.RollupTTL > 0 {
-		log.Printf("storage: %s does not support TTL; configured TTLs (ticks=%s, rollup=%s) will not be enforced", backend, cfg.TicksTTL, cfg.RollupTTL)
 	}
 
 	if cfg.TicksMaxSize > 0 || cfg.RollupMaxSize > 0 {
@@ -129,7 +131,20 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 
 	log.Printf("storage: opened %s at %s", backend, cfg.DataDir)
-	return &Engine{blob: blob}, nil
+
+	e := &Engine{blob: blob}
+
+	// Start reaper only when the backend lacks native TTL support.
+	// Backends with native TTL handle expiry in compaction — no reaper needed.
+	if !nativeTTL && (cfg.TicksTTL > 0 || cfg.RollupTTL > 0) {
+		ttl := TTLConfig{TicksTTL: cfg.TicksTTL, RollupTTL: cfg.RollupTTL}
+		reaper := NewReaper(e, ttl, 10*time.Minute)
+		reaper.Start()
+		e.reaper = reaper
+		log.Printf("storage: reaper started (ticks TTL: %s, rollup TTL: %s, interval: 10m)", cfg.TicksTTL, cfg.RollupTTL)
+	}
+
+	return e, nil
 }
 
 // Blob returns the underlying Blob store.
@@ -139,6 +154,9 @@ func (e *Engine) Blob() Blob {
 
 // Close shuts down the engine cleanly.
 func (e *Engine) Close() error {
+	if e.reaper != nil {
+		e.reaper.Stop()
+	}
 	return e.blob.Close()
 }
 

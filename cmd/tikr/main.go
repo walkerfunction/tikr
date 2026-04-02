@@ -86,8 +86,13 @@ func main() {
 		log.Fatalf("storage: %v", err)
 	}
 
+	fmt.Printf("  ttl: ticks=%s, rollup=%s (lazy read filter + reaper every 10m)\n", ticksTTL, rollupTTL)
+
 	writer := storage.NewWriter(engine)
-	reader := storage.NewReader(engine)
+	reader := storage.NewReaderWithTTL(engine, storage.TTLConfig{
+		TicksTTL:  ticksTTL,
+		RollupTTL: rollupTTL,
+	})
 
 	// Create Kafka producer (if brokers configured)
 	brokers := cfg.Kafka.Brokers

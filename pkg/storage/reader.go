@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,11 +12,17 @@ import (
 // Reader handles reads from the storage backend.
 type Reader struct {
 	engine *Engine
+	ttl    TTLConfig
 }
 
 // NewReader creates a new Reader.
 func NewReader(engine *Engine) *Reader {
 	return &Reader{engine: engine}
+}
+
+// NewReaderWithTTL creates a Reader that skips expired keys on read.
+func NewReaderWithTTL(engine *Engine, ttl TTLConfig) *Reader {
+	return &Reader{engine: engine, ttl: ttl}
 }
 
 // ReadTicks scans ticks for a given series+dimension in a time range.
@@ -32,6 +39,7 @@ func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint6
 	defer iter.Close()
 
 	var ticks []core.Tick
+	cutoff := r.ttl.ticksCutoffNs()
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		if limit > 0 && uint32(len(ticks)) >= limit {
@@ -40,6 +48,16 @@ func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint6
 
 		// Strip the prefix byte before decoding
 		rawKey := iter.Key()[1:]
+
+		// Lazy TTL: skip expired keys without decoding the value.
+		// Length guard preserves DecodeTickKey's clean error for malformed keys.
+		if cutoff > 0 && len(rawKey) >= 18 {
+			tsNs := binary.BigEndian.Uint64(rawKey[10:18])
+			if tsNs < cutoff {
+				continue
+			}
+		}
+
 		_, _, tsNs, seq, err := core.DecodeTickKey(rawKey)
 		if err != nil {
 			return nil, fmt.Errorf("decoding tick key: %w", err)
@@ -78,8 +96,20 @@ func (r *Reader) ReadBars(seriesID uint16, dimHash uint64, startTs, endTs uint64
 	defer iter.Close()
 
 	var bars []*core.Bar
+	cutoff := r.ttl.rollupCutoffNs()
 
 	for iter.First(); iter.Valid(); iter.Next() {
+		// Lazy TTL: skip expired keys without decoding the value.
+		if cutoff > 0 {
+			rawKey := iter.Key()[1:]
+			if len(rawKey) >= 18 {
+				bucketTs := binary.BigEndian.Uint64(rawKey[10:18])
+				if bucketTs < cutoff {
+					continue
+				}
+			}
+		}
+
 		var bar core.Bar
 		if err := json.Unmarshal(iter.Value(), &bar); err != nil {
 			return nil, fmt.Errorf("unmarshaling bar: %w", err)
