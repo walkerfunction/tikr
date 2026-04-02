@@ -80,7 +80,9 @@ RollupEngine (in-memory accumulators per dimension combo)
 Two-layer design:
 
 1. **Lazy read filter** -- `NewReaderWithTTL()` checks the timestamp in each key and skips expired entries before decoding values. Zero write-path cost.
-2. **Reaper** (every 10min) -- discovers `(series_id, dim_hash)` groups by hopping through the data keyspace via `SeekGE` (O(groups) seeks). For each group, issues `DeleteRange([prefix][sid][dh][last_cutoff], [prefix][sid][dh][new_cutoff+1])` — incremental, non-overlapping tombstones. A per-prefix watermark in meta tracks progress across cycles. Pebble's `DeleteRange` is `[start, end)` exclusive, so `cutoff+1` makes it inclusive of keys at exactly the cutoff. Pebble's compaction discards tombstoned keys during SSTable merges.
+2. **Reaper** (every 10min) -- discovers `(series_id, dim_hash)` groups by hopping through the data keyspace via `SeekGE` (O(groups) seeks). For each group, issues `DeleteRange([prefix][sid][dh][last_cutoff], [prefix][sid][dh][new_cutoff+1])` — incremental, non-overlapping tombstones. A per-prefix watermark in meta tracks progress across cycles. `DeleteRange` is `[start, end)` exclusive, so `cutoff+1` makes it inclusive of keys at exactly the cutoff. Compaction discards tombstoned keys during SSTable merges.
+
+The reaper operates on the `Blob` interface and is backend-agnostic. It is only started when the backend does **not** implement `TTLSupport`. Backends with native TTL (e.g., RocksDB) handle expiry in compaction.
 
 Config: `storage.ticks.ttl` and `storage.rollup.ttl` in `config/default.yaml` (min 1h, max 24h).
 

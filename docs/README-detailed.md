@@ -120,7 +120,32 @@ output:
 
 ## Storage Model
 
-Tikr uses [Pebble](https://github.com/cockroachdb/pebble), an embedded LSM key-value store written in pure Go (from CockroachDB).
+Tikr supports pluggable storage backends via the `Blob` interface. The backend is selected via `storage.backend` in config or the `TIKR_STORAGE_BACKEND` env var.
+
+### Backend Comparison
+
+| | Pebble (default) | RocksDB (`-tags rocksdb`) |
+|---|---|---|
+| **Language** | Pure Go | C++ via cgo (`grocksdb`) |
+| **Build** | `go build` | Requires `librocksdb-dev` + C toolchain |
+| **Column families** | Emulated via key prefix bytes (`0x01`, `0x02`, `0x03`) | Native column families (`NamespaceSupport`) |
+| **TTL** | Application-level: lazy read filter + reaper (watermark-based `DeleteRange` tombstones) | `TTLSupport` interface implemented (currently no-op hook; reaper handles TTL). Future: native `OpenDbWithTTL` |
+| **Compression** | LZ4 (default), ZSTD bottommost | Snappy L0-L1, ZSTD bottommost |
+| **Bloom filters** | Built-in (point lookups only, not seeks) | Configurable bits per key (default 10) |
+| **Block cache** | Pebble managed | Explicit LRU cache (default 256MB) |
+| **Concurrency** | Go-native, no cgo overhead | cgo boundary on every call |
+| **Best for** | Default deployments, simple builds, CI | Production with large datasets, future native TTL/compaction tuning |
+
+### TTL Flow by Backend
+
+| Step | Pebble | RocksDB (current) |
+|------|--------|-------------------|
+| **1. Read filter** | Lazy: skip keys older than `now - TTL` before decoding value | Same |
+| **2. Reaper** | Every 10min: discover groups via `SeekGE` hopping | Same (reaper runs because `SetTTL` is a no-op) |
+| **3. Tombstoning** | `DeleteRange(last_watermark, new_cutoff+1)` per group | Same |
+| **4. Watermark** | `reap:hwm:<prefix>` in meta prevents overlapping tombstones | Same |
+| **5. Disk reclaim** | Pebble compaction merges SSTs, discards tombstoned keys | RocksDB compaction (same mechanism) |
+| **6. Future** | -- | Native `OpenDbWithTTL` per column family; reaper skipped |
 
 ### Key Encoding
 
@@ -140,12 +165,24 @@ Configured in `config/default.yaml`:
 storage:
   data_dir: /data
   ticks:
-    ttl: 6h          # Raw ticks kept for 6 hours
+    ttl: 6h          # Raw ticks kept for 6 hours (min: 1h, max: 24h)
     max_size_gb: 50
   rollup:
-    ttl: 12h         # Bars kept for 12 hours
+    ttl: 12h         # Bars kept for 12 hours (min: 1h, max: 24h)
     max_size_gb: 5
 ```
+
+**How TTL works (Pebble backend):**
+
+Pebble does not have native TTL support, so Tikr enforces TTL at the application level using two complementary mechanisms:
+
+1. **Lazy read filter** -- Every query checks the timestamp embedded in each data key against the TTL cutoff (`now - TTL`). Keys older than the cutoff are skipped before the value is decoded. This gives immediate read correctness with zero write-path overhead.
+
+2. **Reaper (background tombstoning)** -- A background goroutine runs every 10 minutes to reclaim disk space from expired data. It discovers all `(series_id, dim_hash)` groups by hopping through the data keyspace with `SeekGE` (no registry needed). For each group, it issues a `DeleteRange` tombstone covering the range from the last watermark to the new cutoff. A per-prefix watermark (`reap:hwm:<prefix>`) stored in the meta prefix tracks the last-reaped cutoff, ensuring each cycle only tombstones the newly-expired slice. Pebble's compaction reclaims the underlying disk during SSTable merges.
+
+**Backends with native TTL** (e.g., RocksDB with `TTLSupport`): The reaper is not started. Expiry is handled by the backend's own compaction.
+
+**Size limits** (`max_size_gb`) are advisory only -- neither Pebble nor the reaper enforces size-based compaction.
 
 ## Use Cases
 

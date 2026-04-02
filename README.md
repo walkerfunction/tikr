@@ -47,11 +47,13 @@ python examples/python/01_ingest_ticks.py
 
 Tikr is an edge node -- all local data is ephemeral with configurable TTL (1h--24h).
 
-**Two-layer TTL enforcement:**
+**Two-layer TTL enforcement (Pebble and backends without native TTL):**
 
 1. **Lazy read filter** -- on every query, the Reader checks the timestamp embedded in each key and skips expired entries before decoding the value. Zero write-path cost, immediate correctness.
 
-2. **Reaper** -- a background goroutine (every 10min) discovers `(series_id, dim_hash)` groups by hopping through the data keyspace via `SeekGE`, then issues incremental Pebble `DeleteRange` tombstones per group. A per-prefix watermark tracks the last-reaped cutoff, so each cycle only tombstones the newly-expired slice -- no overlapping tombstones, no write amplification. Pebble's compaction discards tombstoned keys during SSTable merges.
+2. **Reaper** -- a background goroutine (every 10min) discovers `(series_id, dim_hash)` groups by hopping through the data keyspace via `SeekGE`, then issues incremental `DeleteRange` tombstones per group. A per-prefix watermark tracks the last-reaped cutoff, so each cycle only tombstones the newly-expired slice -- no overlapping tombstones, no write amplification. Compaction discards tombstoned keys during SSTable merges.
+
+The reaper operates on the `Blob` interface and works with any storage backend. Backends that implement native `TTLSupport` (e.g., RocksDB with TTL compaction) handle expiry themselves -- the reaper is not started.
 
 ```yaml
 # config/default.yaml
