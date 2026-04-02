@@ -7,6 +7,8 @@ import (
 	"github.com/walkerfunction/tikr/pkg/core"
 )
 
+// --- Lazy read filter tests ---
+
 func TestTTL_TicksExpiredOnRead(t *testing.T) {
 	engine := newTestEngine(t)
 	writer := NewWriter(engine)
@@ -112,6 +114,8 @@ func TestTTL_ZeroMeansNoExpiry(t *testing.T) {
 	}
 }
 
+// --- Reaper tests ---
+
 func TestReaper_TombstonesExpiredTicks(t *testing.T) {
 	engine := newTestEngine(t)
 	writer := NewWriter(engine)
@@ -135,17 +139,23 @@ func TestReaper_TombstonesExpiredTicks(t *testing.T) {
 	}
 
 	// Before reap: raw reader sees all 3
-	got, _ := readerRaw.ReadTicks(seriesID, dimHash, 0, ^uint64(0), 0)
+	got, err := readerRaw.ReadTicks(seriesID, dimHash, 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 3 {
 		t.Fatalf("before reap: expected 3 ticks, got %d", len(got))
 	}
 
 	// Run reaper with 1h TTL
 	reaper := NewReaper(engine, TTLConfig{TicksTTL: 1 * time.Hour}, time.Hour)
-	reaper.reap()
+	reaper.ReapOnce()
 
 	// After reap: even raw reader can't see tombstoned keys
-	got, _ = readerRaw.ReadTicks(seriesID, dimHash, 0, ^uint64(0), 0)
+	got, err = readerRaw.ReadTicks(seriesID, dimHash, 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("after reap: expected 1 tick, got %d", len(got))
 	}
@@ -176,9 +186,12 @@ func TestReaper_TombstonesExpiredBars(t *testing.T) {
 	}
 
 	reaper := NewReaper(engine, TTLConfig{RollupTTL: 1 * time.Hour}, time.Hour)
-	reaper.reap()
+	reaper.ReapOnce()
 
-	got, _ := readerRaw.ReadBars(seriesID, dimHash, 0, ^uint64(0))
+	got, err := readerRaw.ReadBars(seriesID, dimHash, 0, ^uint64(0))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("after reap: expected 1 bar, got %d", len(got))
 	}
@@ -219,23 +232,126 @@ func TestReaper_MultipleGroups(t *testing.T) {
 	}
 
 	reaper := NewReaper(engine, TTLConfig{TicksTTL: 1 * time.Hour}, time.Hour)
-	reaper.reap()
+	reaper.ReapOnce()
 
 	// Series 1 AAPL: gone
-	got, _ := readerRaw.ReadTicks(1, core.DimensionHash(aapl), 0, ^uint64(0), 0)
+	got, err := readerRaw.ReadTicks(1, core.DimensionHash(aapl), 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 0 {
 		t.Fatalf("s1 AAPL: expected 0, got %d", len(got))
 	}
 
 	// Series 1 GOOG: still there
-	got, _ = readerRaw.ReadTicks(1, core.DimensionHash(goog), 0, ^uint64(0), 0)
+	got, err = readerRaw.ReadTicks(1, core.DimensionHash(goog), 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("s1 GOOG: expected 1, got %d", len(got))
 	}
 
 	// Series 2 AAPL: gone
-	got, _ = readerRaw.ReadTicks(2, core.DimensionHash(aapl), 0, ^uint64(0), 0)
+	got, err = readerRaw.ReadTicks(2, core.DimensionHash(aapl), 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 0 {
 		t.Fatalf("s2 AAPL: expected 0, got %d", len(got))
+	}
+}
+
+func TestReaper_WatermarkPreventsOverlap(t *testing.T) {
+	engine := newTestEngine(t)
+	writer := NewWriter(engine)
+	readerRaw := NewReader(engine)
+
+	var seriesID uint16 = 1
+	dims := map[string]string{"symbol": "AAPL"}
+	dimHash := core.DimensionHash(dims)
+
+	now := uint64(time.Now().UnixNano())
+	oldTs := now - uint64(2*time.Hour)
+	newTs := now - uint64(10*time.Minute)
+
+	ticks := []core.Tick{
+		{TimestampNs: oldTs, Dimensions: dims, Fields: map[string]int64{"price": 100}, Sequence: 1},
+		{TimestampNs: newTs, Dimensions: dims, Fields: map[string]int64{"price": 200}, Sequence: 2},
+	}
+	if err := writer.WriteTicks(seriesID, ticks); err != nil {
+		t.Fatal(err)
+	}
+
+	reaper := NewReaper(engine, TTLConfig{TicksTTL: 1 * time.Hour}, time.Hour)
+
+	// First reap: tombstones expired data
+	reaper.ReapOnce()
+
+	got, err := readerRaw.ReadTicks(seriesID, dimHash, 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("after first reap: expected 1, got %d", len(got))
+	}
+
+	// Second reap with same TTL: watermark prevents re-tombstoning.
+	// Should complete without error and not affect live data.
+	reaper.ReapOnce()
+
+	got, err = readerRaw.ReadTicks(seriesID, dimHash, 0, ^uint64(0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("after second reap: expected 1, got %d", len(got))
+	}
+
+	// Verify watermark was persisted
+	hwm, err := readWatermark(engine.blob, PrefixTicks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hwm == 0 {
+		t.Fatal("expected non-zero watermark after reap")
+	}
+}
+
+func TestReaper_IntervalValidation(t *testing.T) {
+	engine := newTestEngine(t)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for zero interval")
+		}
+	}()
+
+	NewReaper(engine, TTLConfig{TicksTTL: 1 * time.Hour}, 0)
+}
+
+func TestNextGroupKey(t *testing.T) {
+	// Normal case: increment dim_hash
+	key := nextGroupKey(0x01, 1, 100)
+	if key == nil {
+		t.Fatal("expected non-nil key")
+	}
+	if len(key) != 11 {
+		t.Fatalf("expected 11 bytes, got %d", len(key))
+	}
+
+	// dim_hash overflow: increment series_id
+	key = nextGroupKey(0x01, 1, ^uint64(0))
+	if key == nil {
+		t.Fatal("expected non-nil key for dh overflow")
+	}
+	if len(key) != 3 {
+		t.Fatalf("expected 3 bytes (prefix+sid), got %d", len(key))
+	}
+
+	// Both overflow: nil (exhausted)
+	key = nextGroupKey(0x01, ^uint16(0), ^uint64(0))
+	if key != nil {
+		t.Fatal("expected nil for full overflow")
 	}
 }

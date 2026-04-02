@@ -14,7 +14,7 @@ For full project context, architecture, types, and data flow, see [docs/README-a
 
 - **Schema-agnostic**: the DB doesn't know OHLCV. YAML specs define dimensions, metrics, and aggregation functions. The engine mechanically applies them.
 - **OTLP-native Kafka output**: bars are encoded as standard OpenTelemetry protobuf, consumable by any OTel-compatible backend.
-- **Two-layer TTL**: lazy read filter (immediate correctness) + background reaper with `DeleteRange` tombstones (disk reclamation). Group registry in meta prefix makes reaper O(groups), not O(keys).
+- **Two-layer TTL**: lazy read filter (immediate correctness) + registry-free background reaper with incremental `DeleteRange` tombstones (disk reclamation). Reaper discovers groups via `SeekGE` hopping — O(groups) seeks, no writer-side bookkeeping. Per-prefix watermark prevents overlapping tombstones.
 - **Fire-and-forget Kafka**: if Kafka is down, bars are dropped, not queued. Counter tracks drops.
 - **Pre-allocated OTel attribute sets** on hot paths to avoid per-call allocations.
 

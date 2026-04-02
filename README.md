@@ -51,7 +51,7 @@ Tikr is an edge node -- all local data is ephemeral with configurable TTL (1h--2
 
 1. **Lazy read filter** -- on every query, the Reader checks the timestamp embedded in each key and skips expired entries before decoding the value. Zero write-path cost, immediate correctness.
 
-2. **Reaper** -- a background goroutine (every 10min) issues Pebble `DeleteRange` tombstones to reclaim disk. It reads a **group registry** from the meta prefix to enumerate `(series_id, dim_hash)` groups in O(groups), not O(keys). Pebble's compaction discards tombstoned keys during SSTable merges.
+2. **Reaper** -- a background goroutine (every 10min) discovers `(series_id, dim_hash)` groups by hopping through the data keyspace via `SeekGE`, then issues incremental Pebble `DeleteRange` tombstones per group. A per-prefix watermark tracks the last-reaped cutoff, so each cycle only tombstones the newly-expired slice -- no overlapping tombstones, no write amplification. Pebble's compaction discards tombstoned keys during SSTable merges.
 
 ```yaml
 # config/default.yaml

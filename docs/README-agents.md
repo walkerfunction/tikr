@@ -73,14 +73,14 @@ RollupEngine (in-memory accumulators per dimension combo)
   - `0x01` -- raw ticks: `[0x01][series_id:2][dim_hash:8][timestamp_ns:8][seq:4]`
   - `0x02` -- rollup bars: `[0x02][series_id:2][dim_hash:8][bucket_ts:8]`
   - `0x03` -- metadata: `[0x03][key_name]`
-- **Group registry**: Writer registers `(series_id, dim_hash)` pairs in meta prefix (`grp:` keys) so the reaper can enumerate groups without scanning data keys
+- **Reaper watermarks**: `reap:hwm:<prefix>` keys in meta store the last-reaped cutoff per data prefix
 
 ## TTL Enforcement
 
 Two-layer design:
 
 1. **Lazy read filter** -- `NewReaderWithTTL()` checks the timestamp in each key and skips expired entries before decoding values. Zero write-path cost.
-2. **Reaper** (every 10min) -- reads the group registry from meta, issues `DeleteRange` tombstones per `(series_id, dim_hash)` group from `ts=0` to `ts=cutoff`. Pebble's compaction discards tombstoned keys during SSTable merges. Cost is O(groups), not O(keys).
+2. **Reaper** (every 10min) -- discovers `(series_id, dim_hash)` groups by hopping through the data keyspace via `SeekGE` (O(groups) seeks). For each group, issues `DeleteRange([prefix][sid][dh][last_cutoff], [prefix][sid][dh][new_cutoff+1])` — incremental, non-overlapping tombstones. A per-prefix watermark in meta tracks progress across cycles. Pebble's `DeleteRange` is `[start, end)` exclusive, so `cutoff+1` makes it inclusive of keys at exactly the cutoff. Pebble's compaction discards tombstoned keys during SSTable merges.
 
 Config: `storage.ticks.ttl` and `storage.rollup.ttl` in `config/default.yaml` (min 1h, max 24h).
 
