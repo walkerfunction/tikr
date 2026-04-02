@@ -2,13 +2,13 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
-	"github.com/cockroachdb/pebble"
 	"github.com/walkerfunction/tikr/pkg/core"
 )
 
-// Reader handles reads from Pebble.
+// Reader handles reads from the storage backend.
 type Reader struct {
 	engine *Engine
 }
@@ -25,10 +25,7 @@ func (r *Reader) ReadTicks(seriesID uint16, dimHash uint64, startNs, endNs uint6
 	startKey := PrefixedKey(PrefixTicks, startRaw)
 	endKey := PrefixedKey(PrefixTicks, endRaw)
 
-	iter, err := r.engine.db.NewIter(&pebble.IterOptions{
-		LowerBound: startKey,
-		UpperBound: endKey,
-	})
+	iter, err := r.engine.blob.NewIterator(startKey, endKey)
 	if err != nil {
 		return nil, fmt.Errorf("creating tick iterator: %w", err)
 	}
@@ -74,10 +71,7 @@ func (r *Reader) ReadBars(seriesID uint16, dimHash uint64, startTs, endTs uint64
 	startKey := PrefixedKey(PrefixRollup, startRaw)
 	endKey := PrefixedKey(PrefixRollup, endRaw)
 
-	iter, err := r.engine.db.NewIter(&pebble.IterOptions{
-		LowerBound: startKey,
-		UpperBound: endKey,
-	})
+	iter, err := r.engine.blob.NewIterator(startKey, endKey)
 	if err != nil {
 		return nil, fmt.Errorf("creating bar iterator: %w", err)
 	}
@@ -103,17 +97,12 @@ func (r *Reader) ReadBars(seriesID uint16, dimHash uint64, startTs, endTs uint64
 // ReadMeta reads a value from the meta prefix.
 func (r *Reader) ReadMeta(key []byte) ([]byte, error) {
 	pk := PrefixedKey(PrefixMeta, key)
-	val, closer, err := r.engine.db.Get(pk)
-	if err == pebble.ErrNotFound {
+	val, err := r.engine.blob.Get(pk)
+	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading meta: %w", err)
 	}
-	defer closer.Close()
-
-	// Copy since val is only valid until closer.Close()
-	data := make([]byte, len(val))
-	copy(data, val)
-	return data, nil
+	return val, nil
 }

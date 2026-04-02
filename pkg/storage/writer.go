@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cockroachdb/pebble"
 	"github.com/walkerfunction/tikr/pkg/core"
 )
 
-// Writer handles batch writes to Pebble.
+// Writer handles batch writes to the storage backend.
 type Writer struct {
 	engine *Engine
 }
@@ -26,7 +25,7 @@ type tickValue struct {
 
 // WriteTicks writes a batch of ticks to the ticks prefix.
 func (w *Writer) WriteTicks(seriesID uint16, ticks []core.Tick) error {
-	batch := w.engine.db.NewBatch()
+	batch := w.engine.blob.NewBatch()
 	defer batch.Close()
 
 	for _, tick := range ticks {
@@ -42,12 +41,12 @@ func (w *Writer) WriteTicks(seriesID uint16, ticks []core.Tick) error {
 			return fmt.Errorf("marshaling tick: %w", err)
 		}
 
-		if err := batch.Set(key, val, pebble.NoSync); err != nil {
+		if err := batch.Set(key, val); err != nil {
 			return fmt.Errorf("batch set tick: %w", err)
 		}
 	}
 
-	if err := batch.Commit(pebble.Sync); err != nil {
+	if err := batch.Commit(true); err != nil {
 		return fmt.Errorf("committing tick batch: %w", err)
 	}
 
@@ -65,7 +64,7 @@ func (w *Writer) WriteBar(seriesID uint16, bar *core.Bar) error {
 		return fmt.Errorf("marshaling bar: %w", err)
 	}
 
-	if err := w.engine.db.Set(key, val, pebble.Sync); err != nil {
+	if err := w.engine.blob.Set(key, val, true); err != nil {
 		return fmt.Errorf("writing bar: %w", err)
 	}
 
@@ -74,7 +73,7 @@ func (w *Writer) WriteBar(seriesID uint16, bar *core.Bar) error {
 
 // WriteBars writes multiple rolled-up bars in a batch.
 func (w *Writer) WriteBars(seriesID uint16, bars []*core.Bar) error {
-	batch := w.engine.db.NewBatch()
+	batch := w.engine.blob.NewBatch()
 	defer batch.Close()
 
 	for _, bar := range bars {
@@ -87,12 +86,12 @@ func (w *Writer) WriteBars(seriesID uint16, bars []*core.Bar) error {
 			return fmt.Errorf("marshaling bar: %w", err)
 		}
 
-		if err := batch.Set(key, val, pebble.NoSync); err != nil {
+		if err := batch.Set(key, val); err != nil {
 			return fmt.Errorf("batch set bar: %w", err)
 		}
 	}
 
-	if err := batch.Commit(pebble.Sync); err != nil {
+	if err := batch.Commit(true); err != nil {
 		return fmt.Errorf("committing bar batch: %w", err)
 	}
 
@@ -102,7 +101,7 @@ func (w *Writer) WriteBars(seriesID uint16, bars []*core.Bar) error {
 // WriteMeta writes a key-value pair to the meta prefix.
 func (w *Writer) WriteMeta(key, value []byte) error {
 	pk := PrefixedKey(PrefixMeta, key)
-	if err := w.engine.db.Set(pk, value, pebble.Sync); err != nil {
+	if err := w.engine.blob.Set(pk, value, true); err != nil {
 		return fmt.Errorf("writing meta: %w", err)
 	}
 	return nil

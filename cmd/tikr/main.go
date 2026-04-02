@@ -69,7 +69,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid rollup TTL: %v", err)
 	}
+	backend := storage.Backend(cfg.Storage.Backend)
+	if envBackend := os.Getenv("TIKR_STORAGE_BACKEND"); envBackend != "" {
+		backend = storage.Backend(envBackend)
+	}
+
 	engine, err := storage.NewEngine(storage.EngineConfig{
+		Backend:       backend,
 		DataDir:       cfg.Storage.DataDir,
 		TicksTTL:      ticksTTL,
 		TicksMaxSize:  int64(cfg.Storage.Ticks.MaxSizeGB) * 1024 * 1024 * 1024,
