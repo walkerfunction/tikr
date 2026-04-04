@@ -1,0 +1,32 @@
+FROM ubuntu:24.04
+
+# Install RocksDB 8.9 and Go toolchain
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    librocksdb-dev \
+    libsnappy-dev \
+    liblz4-dev \
+    libzstd-dev \
+    ca-certificates \
+    wget \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.24
+RUN wget -q https://go.dev/dl/go1.24.3.linux-amd64.tar.gz -O /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+
+ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN CGO_ENABLED=1 go mod download
+
+COPY . .
+
+# grocksdb v1.8.6 is compatible with librocksdb 8.9 in Ubuntu 24.04
+RUN go get github.com/linxGnu/grocksdb@v1.8.6
+
+ENTRYPOINT ["go", "test", "./pkg/storage/", "-run=^$", "-bench=.", "-benchtime=1x", "-tags", "rocksdb", "-v"]
