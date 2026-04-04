@@ -136,6 +136,82 @@ Tikr supports pluggable storage backends via the `Blob` interface. The backend i
 | **Concurrency** | Go-native, no cgo overhead | cgo boundary on every call |
 | **Best for** | Default deployments, simple builds, CI | Production with large datasets, future native TTL/compaction tuning |
 
+### Benchmark Results (1M ticks, i9-9880H, Docker)
+
+WriteTicks (1M ticks, 100s span):
+
+| Backend | dims | batch | ticks/sec | ms/op | disk\_MB | compression | rollup\_bars |
+|---------|------|-------|-----------|-------|---------|-------------|-------------|
+| pebble  | 10   | 1000  | 426K      | 2349  | 50.7    | 1.94x       | 1,000       |
+| pebble  | 10   | 5000  | 540K      | 1850  | 51.7    | 1.90x       | 1,000       |
+| pebble  | 100  | 1000  | 357K      | 2803  | 51.3    | 1.91x       | 10,000      |
+| pebble  | 100  | 5000  | 590K      | 1696  | 52.2    | 1.88x       | 10,000      |
+| rocksdb | 10   | 1000  | 210K      | 4769  | 43.5    | 2.26x       | 1,000       |
+| rocksdb | 10   | 5000  | 249K      | 4018  | 43.3    | 2.27x       | 1,000       |
+| rocksdb | 100  | 1000  | 183K      | 5459  | 44.2    | 2.22x       | 10,000      |
+| rocksdb | 100  | 5000  | 243K      | 4112  | 44.0    | 2.23x       | 10,000      |
+
+ReadTicks (single dimension scan on 1M pre-populated ticks):
+
+| Backend | dims | scope | ms/op |
+|---------|------|-------|-------|
+| pebble  | 10   | all   | 214   |
+| pebble  | 10   | 1K    | 3.2   |
+| pebble  | 10   | 10K   | 22    |
+| rocksdb | 10   | all   | 320   |
+| rocksdb | 10   | 1K    | 3.3   |
+| rocksdb | 10   | 10K   | 34    |
+
+ReadBars (10K pre-populated bars):
+
+| Backend | dims | ms/op |
+|---------|------|-------|
+| pebble  | 10   | 14.6  |
+| pebble  | 100  | 1.7   |
+| rocksdb | 10   | 5.7   |
+| rocksdb | 100  | 1.0   |
+
+Reaper (1M expired ticks):
+
+| Backend | dims | ms/op |
+|---------|------|-------|
+| pebble  | 10   | 1.9   |
+| pebble  | 100  | 2.4   |
+| rocksdb | 10   | 3.0   |
+| rocksdb | 100  | 3.2   |
+
+### Which Backend to Use
+
+**Pebble** (default) -- best for most deployments:
+
+- 2x write throughput (no cgo boundary overhead)
+- Pure Go: simple `go build`, no `librocksdb-dev`, easier CI/CD
+- Lower latency reads on full scans
+- Smaller binary, no C++ dependency chain
+
+Use when: standard HFT edge rollup, CI/CD pipelines, teams without C++ toolchain, latency-sensitive ingest paths.
+
+**RocksDB** -- best for storage-constrained or multi-tenant:
+
+- 15% better compression (43 MB vs 51 MB per 1M ticks -- adds up at scale)
+- Native column families for true namespace isolation (ticks/bars/meta)
+- 3x faster bar reads (native CF seek vs prefix scan)
+- Future native TTL via `OpenDbWithTTL` per CF (no reaper needed)
+- Mature tuning knobs: block cache, bloom bits, compaction styles, rate limiters
+
+Use when: disk is expensive/limited (embedded edge boxes), multi-tenant with per-namespace TTLs, read-heavy bar queries (dashboards, signal feeds), production at scale with fine-grained tuning needs.
+
+**Decision tree:**
+
+```
+Need simplest build + fastest writes?  → Pebble
+Disk-constrained or multi-tenant?      → RocksDB
+Read-heavy on rolled bars?             → RocksDB
+Don't know / getting started?          → Pebble (switch later — same Blob interface)
+```
+
+Switching backends is a config change (`storage.backend: rocksdb`), not a rewrite.
+
 ### TTL Flow by Backend
 
 | Step | Pebble | RocksDB (current) |

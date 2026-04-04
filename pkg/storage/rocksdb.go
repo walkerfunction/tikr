@@ -5,6 +5,7 @@ package storage
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/linxGnu/grocksdb"
@@ -52,7 +53,7 @@ func OpenRocksDB(cfg RocksDBConfig) (*RocksDBBlob, error) {
 	if wbSize <= 0 {
 		wbSize = 64 * 1024 * 1024
 	}
-	opts.SetWriteBufferSize(wbSize)
+	opts.SetWriteBufferSize(uint64(wbSize))
 
 	wbNum := cfg.MaxWriteBufferNum
 	if wbNum <= 0 {
@@ -85,7 +86,11 @@ func OpenRocksDB(cfg RocksDBConfig) (*RocksDBBlob, error) {
 	// corruption), we propagate rather than silently falling back.
 	cfNames, err := grocksdb.ListColumnFamilies(opts, cfg.Dir)
 	if err != nil {
-		if _, statErr := os.Stat(cfg.Dir); os.IsNotExist(statErr) {
+		// ListColumnFamilies fails when no DB exists yet (no CURRENT file).
+		// This is expected on first run — fall back to default CF.
+		// For real errors (permissions, corruption on an existing DB),
+		// we propagate.
+		if _, statErr := os.Stat(filepath.Join(cfg.Dir, "CURRENT")); os.IsNotExist(statErr) {
 			cfNames = []string{"default"}
 		} else {
 			return nil, fmt.Errorf("listing column families at %s: %w", cfg.Dir, err)
