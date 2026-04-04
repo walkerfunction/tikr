@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.3.0] - 2026-04-03
+
+### Added
+
+- RocksDB storage backend with native column families and TTL hook (`-tags rocksdb`)
+- Pluggable `Blob` interface abstracting storage backends (Pebble, RocksDB)
+- `BackendOpener` registry pattern with mutex-protected dynamic registration
+- TTL enforcement: lazy read filter (immediate correctness) + registry-free background reaper
+- Reaper discovers groups via `SeekGE` hopping -- O(groups) seeks, no writer-side bookkeeping
+- Per-prefix watermark prevents overlapping `DeleteRange` tombstones across reaper cycles
+- Storage benchmarks comparing Pebble vs RocksDB (WriteTicks, WriteBars, ReadTicks, ReadBars, Reaper)
+- Docker benchmark image (`Dockerfile.bench`) -- Ubuntu 24.04 + librocksdb for RocksDB benchmarks
+- Backend selection guide and benchmark results in documentation
+
+### Changed
+
+- Storage layer refactored from direct Pebble calls to `Blob` interface
+- Reaper converted from Pebble-specific to backend-agnostic (works with any `Blob`)
+- Reaper only starts when backend lacks native `TTLSupport`
+- Writer simplified to pure data writes (no group registry tracking)
+
+### Fixed
+
+- RocksDB `ListColumnFamilies` fallback now checks for `CURRENT` file instead of directory existence
+- `SetWriteBufferSize` uint64 cast for grocksdb compatibility
+
+## [v0.2.1] - 2026-03-29
+
+### Fixed
+
+- Apache 2.0 license text corrected for pkg.go.dev detection
+
 ## [v0.2.0] - 2026-03-29
 
 ### Added
