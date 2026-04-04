@@ -1,6 +1,6 @@
 FROM ubuntu:24.04
 
-# Install RocksDB 8.9 and Go toolchain
+# Install RocksDB (Ubuntu 24.04 ships 8.9.x) and Go toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends \
     librocksdb-dev \
     libsnappy-dev \
@@ -26,7 +26,9 @@ RUN CGO_ENABLED=1 go mod download
 
 COPY . .
 
-# grocksdb v1.8.6 is compatible with librocksdb 8.9 in Ubuntu 24.04
+# grocksdb is a cgo-only optional dependency (behind -tags rocksdb).
+# It's not in go.mod because the main build is pure Go / no CGO.
+# We add it here so the rocksdb build tag resolves inside the container.
 RUN go get github.com/linxGnu/grocksdb@v1.8.6
 
 ENTRYPOINT ["go", "test", "./pkg/storage/", "-run=^$", "-bench=.", "-benchtime=1x", "-tags", "rocksdb", "-v"]

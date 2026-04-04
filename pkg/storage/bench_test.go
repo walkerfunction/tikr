@@ -225,8 +225,10 @@ func BenchmarkWriteTicks(b *testing.B) {
 					b.ReportMetric(float64(rollupBars), "rollup_bars")
 
 					for i := 0; i < b.N; i++ {
+						b.StopTimer()
 						be := newBenchEngine(b, backend)
 						writer := NewWriter(be.Engine)
+						b.StartTimer()
 
 						start := time.Now()
 
@@ -245,8 +247,11 @@ func BenchmarkWriteTicks(b *testing.B) {
 						b.ReportMetric(elapsed.Seconds()*1000, "ms/op")
 
 						b.StopTimer()
-						be.Close()
+						if err := be.Close(); err != nil {
+							b.Fatalf("close engine: %v", err)
+						}
 						reportDiskMetrics(b, be.dataDir, rawBytes)
+						b.StartTimer()
 					}
 				})
 			}
@@ -269,8 +274,10 @@ func BenchmarkWriteBars(b *testing.B) {
 				rawBytes := int64(totalBars) * rawBytesPerBar
 
 				for i := 0; i < b.N; i++ {
+					b.StopTimer()
 					be := newBenchEngine(b, backend)
 					writer := NewWriter(be.Engine)
+					b.StartTimer()
 
 					start := time.Now()
 
@@ -289,8 +296,11 @@ func BenchmarkWriteBars(b *testing.B) {
 					b.ReportMetric(elapsed.Seconds()*1000, "ms/op")
 
 					b.StopTimer()
-					be.Close()
+					if err := be.Close(); err != nil {
+						b.Fatalf("close engine: %v", err)
+					}
 					reportDiskMetrics(b, be.dataDir, rawBytes)
+					b.StartTimer()
 				}
 			})
 		}
@@ -433,7 +443,9 @@ func BenchmarkReaper(b *testing.B) {
 					reaper.ReapOnce()
 					b.StopTimer()
 
-					be.Close()
+					if err := be.Close(); err != nil {
+						b.Fatalf("close engine: %v", err)
+					}
 				}
 
 				b.ReportMetric(float64(dims), "groups/op")
